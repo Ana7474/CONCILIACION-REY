@@ -1,0 +1,128 @@
+Sub ImportAndProcessCSV()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook
+    Dim wsCSV As Worksheet
+    Dim wsDATA As Worksheet
+    Dim wsCONC As Worksheet
+    Dim wbNew As Workbook
+    Dim lastRow As Long, lastCol As Long
+    Dim lastRowDATA As Long
+    Dim rG As Range, rH As Range, c As Range
+    Dim s As String, i As Long
+    Dim todayDate As Date
+    Dim savePath As String, fileName As String
+    
+    todayDate = Date  ' today's system date
+
+    ' Set target sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    ' Clean both sheets first
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' Pick CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select a CSV file"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then Exit Sub
+        filePath = .SelectedItems(1)
+    End With
+
+    ' Open CSV and import to DATA
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' Process DATA -> CONCILIACIÓN
+    lastRowDATA = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+
+    wsDATA.Range("E1:E" & lastRowDATA).Copy: wsCONC.Range("A1").PasteSpecial xlPasteValues ' E -> A
+    wsDATA.Range("D1:D" & lastRowDATA).Copy: wsCONC.Range("B1").PasteSpecial xlPasteValues ' D -> B
+    wsDATA.Range("C1:C" & lastRowDATA).Copy: wsCONC.Range("C1").PasteSpecial xlPasteValues ' C -> C
+    wsDATA.Range("F1:F" & lastRowDATA).Copy: wsCONC.Range("D1").PasteSpecial xlPasteValues ' F -> D
+    wsDATA.Range("G1:G" & lastRowDATA).Copy: wsCONC.Range("E1").PasteSpecial xlPasteValues ' G -> E
+    wsDATA.Range("H1:H" & lastRowDATA).Copy: wsCONC.Range("F1").PasteSpecial xlPasteValues ' H -> F
+    wsDATA.Range("J1:J" & lastRowDATA).Copy: wsCONC.Range("G1").PasteSpecial xlPasteValues ' J -> G
+    wsDATA.Range("L1:L" & lastRowDATA).Copy: wsCONC.Range("H1").PasteSpecial xlPasteValues ' L -> H
+    Application.CutCopyMode = False
+
+    ' === CONCATENATE C + A into A ===
+    For i = 2 To lastRowDATA
+        If wsCONC.Cells(i, "C").Value <> "" And wsCONC.Cells(i, "A").Value <> "" Then
+            wsCONC.Cells(i, "A").Value = wsCONC.Cells(i, "C").Value & wsCONC.Cells(i, "A").Value
+        End If
+    Next i
+
+    ' === FORMAT NUMBERS WITH COMMAS (D & E) ===
+    wsCONC.Range("D2:D" & lastRowDATA).NumberFormat = "#,##0"
+    wsCONC.Range("E2:E" & lastRowDATA).NumberFormat = "#,##0"
+
+    ' === COERCE TO REAL DATES & FORMAT ENGLISH MONTHS (G & H) ===
+    If lastRowDATA >= 2 Then
+        Set rG = wsCONC.Range("G2:G" & lastRowDATA)
+        Set rH = wsCONC.Range("H2:H" & lastRowDATA)
+
+        For Each c In rG.Cells
+            If Len(c.Value2) > 0 And Not IsDate(c.Value) Then
+                s = Trim(CStr(c.Value))
+                s = Replace(Replace(s, ".", "/"), "-", "/")
+                On Error Resume Next
+                c.Value = CDate(s)
+                On Error GoTo 0
+            End If
+        Next c
+
+        For Each c In rH.Cells
+            If Len(c.Value2) > 0 And Not IsDate(c.Value) Then
+                s = Trim(CStr(c.Value))
+                s = Replace(Replace(s, ".", "/"), "-", "/")
+                On Error Resume Next
+                c.Value = CDate(s)
+                On Error GoTo 0
+            End If
+        Next c
+
+        rG.NumberFormat = "[$-en-US]dd-mmm-yy"
+        rH.NumberFormat = "[$-en-US]dd-mmm-yy"
+    End If
+
+    ' === DELETE ROWS IN G THAT ARE NOT TODAY ===
+    For i = lastRowDATA To 2 Step -1
+        If IsDate(wsCONC.Cells(i, "G").Value) Then
+            If wsCONC.Cells(i, "G").Value <> todayDate Then
+                wsCONC.Rows(i).Delete
+            End If
+        Else
+            wsCONC.Rows(i).Delete
+        End If
+    Next i
+
+    ' === EXPORT CONCILIACIÓN TO NEW FILE ===
+    savePath = Environ("USERPROFILE") & "\Documents\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+    fileName = "CONCILIACION_" & Format(Date, "yyyymmdd") & ".xlsx"
+
+    ' Create new workbook and copy the sheet
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    Application.DisplayAlerts = False
+    wbNew.SaveAs Filename:=savePath & fileName, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "CSV processed and saved to: " & savePath & fileName, vbInformation
+End Sub
