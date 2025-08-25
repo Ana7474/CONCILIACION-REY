@@ -1,0 +1,61 @@
+Sub EnviarPruebaRobusta_Actinver()
+    On Error GoTo falla
+
+    Dim olApp As Object, olNS As Object
+    Dim olMail As Object
+    Dim rec As Object, ok As Boolean
+    Dim remitenteSMTP As String
+
+    Set olApp = CreateObject("Outlook.Application")
+    Set olNS = olApp.Session
+
+    ' Descubre el SMTP del usuario (sirve para diagnosticar qué perfil está enviando)
+    On Error Resume Next
+    If Not olNS Is Nothing Then
+        If Not olNS.CurrentUser Is Nothing Then
+            If Not olNS.CurrentUser.AddressEntry Is Nothing Then
+                If Not olNS.CurrentUser.AddressEntry.GetExchangeUser Is Nothing Then
+                    remitenteSMTP = olNS.CurrentUser.AddressEntry.GetExchangeUser.PrimarySmtpAddress
+                End If
+            End If
+        End If
+    End If
+    On Error GoTo falla
+
+    Set olMail = olApp.CreateItem(0) 'olMailItem
+
+    With olMail
+        ' --- FORMATO SEGURO (evita rechazos por RTF/TNEF) ---
+        .BodyFormat = 1          ' olFormatPlain
+        .InternetCodepage = 65001 ' UTF-8
+        .Subject = "Prueba VBA sencilla (plaintext)"
+        .Body = "Hola," & vbCrLf & vbCrLf & _
+                "Prueba de envío por macro. " & _
+                "Remitente detectado: " & remitenteSMTP & vbCrLf & _
+                "Fecha/hora: " & Format(Now, "yyyy-mm-dd HH:nn:ss") & vbCrLf & _
+                "Saludos."
+
+        ' --- AGREGA DESTINATARIO COMO OBJETO Y RESUELVE ---
+        Set rec = .Recipients.Add("atobias@actinver.com")
+        rec.Type = 1 ' olTo
+        ok = .Recipients.ResolveAll
+        If Not ok Then
+            MsgBox "No se pudo resolver el/los destinatario(s). Revisa el correo o DNS/Libreta Global.", vbExclamation
+            Exit Sub
+        End If
+
+        ' --- (IMPORTANTE) NO FORZAR From/SentOnBehalfOfName ---
+        ' Si tu macro original pone .SentOnBehalfOfName, comenta esa línea para este usuario
+        ' .SentOnBehalfOfName = ""  ' <- NO usar salvo que tenga Send As
+
+        ' Guarda primero (a veces evita NDRs raros del transport)
+        .Save
+        .Send
+    End With
+
+    MsgBox "Enviado (plaintext) a atobias@actinver.com desde: " & remitenteSMTP, vbInformation
+    Exit Sub
+
+falla:
+    MsgBox "Error en cliente antes de enviar: " & Err.Number & " - " & Err.Description, vbCritical
+End Sub
