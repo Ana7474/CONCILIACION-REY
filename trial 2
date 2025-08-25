@@ -1,0 +1,23 @@
+Sub PruebaEnvioCorreo()
+    Dim olApp As Object
+    Dim olMail As Object
+    
+    ' Crear aplicación de Outlook
+    Set olApp = CreateObject("Outlook.Application")
+    Set olMail = olApp.CreateItem(0) 'olMailItem
+    
+    With olMail
+        .To = "atobias@actinver.com"
+        .Subject = "Prueba de macro"
+        .Body = "Hola," & vbCrLf & vbCrLf & _
+                "Este es un correo de prueba enviado mediante macro VBA." & vbCrLf & _
+                "Saludos."
+        .Send   ' Enviar directamente
+        '.Display ' <-- usar esto en lugar de .Send si quieres que solo se muestre
+    End With
+    
+    Set olMail = Nothing
+    Set olApp = Nothing
+    
+    MsgBox "Correo enviado a atobias@actinver.com", vbInformation
+End Sub
