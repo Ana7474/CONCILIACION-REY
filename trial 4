@@ -1,0 +1,30 @@
+Sub PruebaEnvio_Blindada()
+    Dim olApp As Object, olNS As Object
+    Dim olMail As Object
+
+    Set olApp = CreateObject("Outlook.Application")
+    Set olNS  = olApp.Session
+    Set olMail = olApp.CreateItem(0)
+
+    With olMail
+        .BodyFormat = 1                 'Texto sin formato (evita TNEF)
+        .InternetCodepage = 65001       'UTF-8
+        .Subject = "Prueba VBA (blindada)"
+        .Body = "Prueba de envío." & vbCrLf & Format(Now, "yyyy-mm-dd HH:nn:ss")
+        .Recipients.Add "atobias@actinver.com"
+        If Not .Recipients.ResolveAll Then
+            MsgBox "Destinatario no resuelto.", vbExclamation: Exit Sub
+        End If
+
+        ' Fuerza "Enviados" del perfil ACTUAL:
+        On Error Resume Next
+        Set .SaveSentMessageFolder = olNS.GetDefaultFolder(olFolderSentMail)
+        On Error GoTo 0
+
+        .DeleteAfterSubmit = False
+        .Save
+        .Send
+    End With
+
+    MsgBox "Enviado.", vbInformation
+End Sub
