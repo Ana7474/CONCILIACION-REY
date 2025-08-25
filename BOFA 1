@@ -1,0 +1,62 @@
+Sub ImportAndProcessCSV()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook
+    Dim wsCSV As Worksheet
+    Dim wsDATA As Worksheet
+    Dim wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim lastRowDATA As Long
+    
+    ' Set target sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    On Error GoTo 0
+    
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+    
+    ' Open file dialog for CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select a CSV file"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show = -1 Then
+            filePath = .SelectedItems(1)
+        Else
+            Exit Sub ' Cancelled
+        End If
+    End With
+    
+    ' Open CSV
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+    
+    ' Find last row and column in CSV
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+    
+    ' Clear DATA and import fresh CSV data
+    wsDATA.Cells.Clear
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    
+    ' Close CSV without saving
+    wbCSV.Close SaveChanges:=False
+    
+    ' ==== PROCESS DATA ====
+    ' Find last row in DATA (col E)
+    lastRowDATA = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+    
+    ' Clear column A in CONCILIACIÓN
+    wsCONC.Columns("A").Clear
+    
+    ' Copy column E (DATA) → column A (CONCILIACIÓN)
+    wsDATA.Range("E1:E" & lastRowDATA).Copy wsCONC.Range("A1")
+    
+    MsgBox "CSV imported and processed into CONCILIACIÓN!", vbInformation
+End Sub
