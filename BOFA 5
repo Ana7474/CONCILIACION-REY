@@ -1,0 +1,112 @@
+Sub ImportAndProcessCSV()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook
+    Dim wsCSV As Worksheet
+    Dim wsDATA As Worksheet
+    Dim wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim lastRowDATA As Long
+    Dim rng As Range, c As Range
+
+    ' Set target sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    ' === CLEAN UP BOTH SHEETS FIRST ===
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' Open file dialog for CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select a CSV file"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show = -1 Then
+            filePath = .SelectedItems(1)
+        Else
+            Exit Sub ' Cancelled
+        End If
+    End With
+
+    ' Open CSV
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    ' Find last row and column in CSV
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    ' Import fresh CSV data into DATA
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+
+    ' Close CSV without saving
+    wbCSV.Close SaveChanges:=False
+
+    ' ==== PROCESS DATA ====
+    lastRowDATA = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+
+    ' E -> A
+    wsDATA.Range("E1:E" & lastRowDATA).Copy
+    wsCONC.Range("A1").PasteSpecial xlPasteValues
+
+    ' D -> B
+    wsDATA.Range("D1:D" & lastRowDATA).Copy
+    wsCONC.Range("B1").PasteSpecial xlPasteValues
+
+    ' C -> C
+    wsDATA.Range("C1:C" & lastRowDATA).Copy
+    wsCONC.Range("C1").PasteSpecial xlPasteValues
+
+    ' F -> D
+    wsDATA.Range("F1:F" & lastRowDATA).Copy
+    wsCONC.Range("D1").PasteSpecial xlPasteValues
+
+    ' G -> E
+    wsDATA.Range("G1:G" & lastRowDATA).Copy
+    wsCONC.Range("E1").PasteSpecial xlPasteValues
+
+    ' H -> F
+    wsDATA.Range("H1:H" & lastRowDATA).Copy
+    wsCONC.Range("F1").PasteSpecial xlPasteValues
+
+    ' J -> G
+    wsDATA.Range("J1:J" & lastRowDATA).Copy
+    wsCONC.Range("G1").PasteSpecial xlPasteValues
+
+    ' L -> H
+    wsDATA.Range("L1:L" & lastRowDATA).Copy
+    wsCONC.Range("H1").PasteSpecial xlPasteValues
+
+    Application.CutCopyMode = False
+
+    ' === COERCE TO REAL DATES & FORMAT IN ENGLISH (G & H) ===
+    ' Try to convert any text-looking dates to real dates first
+    If lastRowDATA >= 2 Then
+        For Each rng In Array(wsCONC.Range("G2:G" & lastRowDATA), wsCONC.Range("H2:H" & lastRowDATA))
+            For Each c In rng.Cells
+                If Len(c.Value2) > 0 Then
+                    ' Replace common separators and try CDate
+                    On Error Resume Next
+                    c.Value = CDate(Replace(Replace(c.Value, ".", "/"), "-", "/"))
+                    On Error GoTo 0
+                End If
+            Next c
+        Next rng
+
+        ' Force English month abbreviations regardless of Excel UI language
+        wsCONC.Range("G2:G" & lastRowDATA).NumberFormat = "[$-en-US]dd-mmm-yy"
+        wsCONC.Range("H2:H" & lastRowDATA).NumberFormat = "[$-en-US]dd-mmm-yy"
+    End If
+
+    MsgBox "CSV imported and processed into CONCILIACIÓN (dates in EN format).", vbInformation
+End Sub
