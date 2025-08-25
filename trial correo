@@ -1,0 +1,71 @@
+Sub CrearBorradorConDestinatarios(ByVal strPara As String, ByVal strCC As String, ByVal strBCC As String, _
+                                  Optional ByVal FromAlias As String = "")
+    Dim olApp As Object, olMail As Object
+    Dim arrTo() As String, arrCC() As String, arrBCC() As String
+    Dim i As Long, ok As Boolean
+    
+    Set olApp = CreateObject("Outlook.Application")
+    Set olMail = olApp.CreateItem(0) 'olMailItem
+
+    ' (1) Si necesitas enviar como otro buzón, SOLO usa esto si el usuario tiene Send As:
+    If Len(FromAlias) > 0 Then olMail.SentOnBehalfOfName = FromAlias
+
+    ' (2) Normaliza separadores: reemplaza coma por punto y coma
+    strPara = Replace(strPara, ",", ";")
+    strCC   = Replace(strCC, ",", ";")
+    strBCC  = Replace(strBCC, ",", ";")
+
+    ' (3) Agrega destinatarios uno por uno y fuerza resolución
+    If Len(Trim$(strPara)) > 0 Then
+        arrTo = Split(strPara, ";")
+        For i = LBound(arrTo) To UBound(arrTo)
+            If Len(Trim$(arrTo(i))) > 0 Then olMail.Recipients.Add Trim$(arrTo(i))
+        Next i
+    End If
+    If Len(Trim$(strCC)) > 0 Then
+        arrCC = Split(strCC, ";")
+        For i = LBound(arrCC) To UBound(arrCC)
+            If Len(Trim$(arrCC(i))) > 0 Then
+                With olMail.Recipients.Add(Trim$(arrCC(i)))
+                    .Type = 2 'olCC
+                End With
+            End If
+        Next i
+    End If
+    If Len(Trim$(strBCC)) > 0 Then
+        arrBCC = Split(strBCC, ";")
+        For i = LBound(arrBCC) To UBound(arrBCC)
+            If Len(Trim$(arrBCC(i))) > 0 Then
+                With olMail.Recipients.Add(Trim$(arrBCC(i)))
+                    .Type = 3 'olBCC
+                End With
+            End If
+        Next i
+    End If
+
+    ' (4) Verifica resolución de TODOS los destinatarios
+    ok = olMail.Recipients.ResolveAll
+    If Not ok Then
+        Dim unr As Object, msg As String
+        For Each unr In olMail.Recipients
+            If Not unr.Resolved Then msg = msg & vbCrLf & " - " & unr.Name
+        Next
+        MsgBox "Hay destinatarios sin resolver:" & msg & vbCrLf & _
+               "Corrige las direcciones (usa ; como separador).", vbExclamation
+        Exit Sub
+    End If
+
+    ' (5) Evita To/CC vacíos si tu organización bloquea solo-BCC
+    If olMail.Recipients.Count > 0 Then
+        ' ok
+    Else
+        MsgBox "No hay destinatarios válidos en To/CC/BCC.", vbExclamation
+        Exit Sub
+    End If
+
+    ' (6) Resto del cuerpo/asunto/adjuntos y mostrar borrador
+    olMail.Subject = "Asunto de prueba"
+    olMail.Body = "Cuerpo del mensaje..."
+    'olMail.Attachments.Add "C:\ruta\archivo.xlsx"
+    olMail.Display 'deja borrador
+End Sub
