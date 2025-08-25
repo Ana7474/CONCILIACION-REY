@@ -1,0 +1,50 @@
+Sub ImportCSVtoDATA()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook
+    Dim wsCSV As Worksheet
+    Dim wsDATA As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    
+    ' Set target sheet
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    On Error GoTo 0
+    If wsDATA Is Nothing Then
+        MsgBox "Sheet 'DATA' not found.", vbCritical
+        Exit Sub
+    End If
+    
+    ' Open file dialog for CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select a CSV file"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show = -1 Then
+            filePath = .SelectedItems(1)
+        Else
+            Exit Sub ' Cancelled
+        End If
+    End With
+    
+    ' Open CSV
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+    
+    ' Find last row and column in CSV
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+    
+    ' Clear existing data in DATA sheet
+    wsDATA.Cells.Clear
+    
+    ' Copy data
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    
+    ' Close CSV without saving
+    wbCSV.Close SaveChanges:=False
+    
+    MsgBox "Data imported successfully into 'DATA' sheet!", vbInformation
+End Sub
