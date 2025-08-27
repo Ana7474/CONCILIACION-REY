@@ -1,0 +1,64 @@
+Sub Start_ImportCSV_to_DATA()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim i As Long, s As String, p As Long
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean both sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select a CSV file"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open CSV and paste into DATA
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+
+    wbCSV.Close SaveChanges:=False
+
+    ' 4) Clean up column B: remove everything after space, make uppercase
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "B").End(xlUp).Row
+    For i = 2 To lastRow
+        s = Trim(CStr(wsDATA.Cells(i, "B").Value))
+        If Len(s) > 0 Then
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)
+            wsDATA.Cells(i, "B").Value = UCase(s)
+        End If
+    Next i
+
+    MsgBox "CSV imported into 'DATA' and column B cleaned (only first word in caps).", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
