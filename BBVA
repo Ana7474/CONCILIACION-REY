@@ -1,0 +1,83 @@
+Sub ImportExcel_To_DATOS()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATOS As Worksheet
+    Dim wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim found As Range, gotData As Boolean
+    
+    On Error Resume Next
+    Set wsDATOS = ThisWorkbook.Sheets("DATOS")
+    ' Try both with and without accent
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    
+    If wsDATOS Is Nothing Then
+        MsgBox "Sheet 'DATOS' not found.", vbCritical
+        Exit Sub
+    End If
+    ' wsCONC is optional; if missing, we just skip clearing it
+    
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    
+    ' 1) Clean target sheets
+    wsDATOS.Cells.Clear
+    If Not wsCONC Is Nothing Then wsCONC.Cells.Clear
+    
+    ' 2) Ask for an Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+    
+    ' 3) Open source workbook
+    On Error Resume Next
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    On Error GoTo 0
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the selected Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+    
+    Set wsSrc = wbSrc.Sheets(1)
+    
+    ' 4) Find real used range and copy to DATOS!A1
+    gotData = False
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATOS.Range("A1")
+        ' If you prefer values only, use the two lines below instead:
+        ' wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy
+        ' wsDATOS.Range("A1").PasteSpecial xlPasteValues
+        gotData = True
+    End If
+    
+    wbSrc.Close SaveChanges:=False
+    
+    If Not gotData Then
+        MsgBox "No data found in the selected workbook (first sheet appears empty).", vbExclamation
+        GoTo TidyExit
+    End If
+    
+    MsgBox "Imported to 'DATOS' successfully.", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
