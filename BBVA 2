@@ -1,0 +1,100 @@
+Sub Process_Today_From_DATA_To_CONCILIACION()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim rngData As Range
+    Dim vIn As Variant, vOut As Variant
+    Dim i As Long, j As Long, keepCount As Long
+    Dim todayDate As Date
+    Dim gVal As Variant
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    todayDate = Date
+    lastCol = 38                 ' AL = column 38
+
+    ' Find last used row in DATA (based on column A; adjust if you prefer another column)
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow < 2 Then
+        wsCONC.Cells.Clear
+        MsgBox "No data to process in DATA.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' Input range A1:AL(lastRow)
+    Set rngData = wsDATA.Range("A1").Resize(lastRow, lastCol)
+    vIn = rngData.Value
+
+    ' Prepare output array with same number of columns; max rows = input rows
+    ReDim vOut(1 To lastRow, 1 To lastCol)
+
+    ' Copy header (row 1)
+    For j = 1 To lastCol
+        vOut(1, j) = vIn(1, j)
+    Next j
+    keepCount = 1
+
+    ' Keep rows where DateValue of column G (col 7) equals today
+    For i = 2 To lastRow
+        gVal = vIn(i, 7)
+        If Len(Trim$(CStr(gVal))) > 0 Then
+            If IsDate(gVal) Then
+                If DateValue(gVal) = todayDate Then
+                    keepCount = keepCount + 1
+                    For j = 1 To lastCol
+                        vOut(keepCount, j) = vIn(i, j)
+                    Next j
+                End If
+            Else
+                ' Try to coerce text dates like "25-Aug-2025 11:33:23", "25-08-2025", "25.08.2025"
+                Dim s As String, p As Long, d As Date
+                s = CStr(gVal)
+                p = InStr(s, " ")
+                If p > 0 Then s = Left$(s, p - 1)
+                s = Replace(Replace(s, ".", "/"), "-", "/")
+                On Error Resume Next
+                d = DateValue(CDate(s))
+                On Error GoTo 0
+                If IsDate(d) Then
+                    If d = todayDate Then
+                        keepCount = keepCount + 1
+                        For j = 1 To lastCol
+                            vOut(keepCount, j) = vIn(i, j)
+                        Next j
+                    End If
+                End If
+            End If
+        End If
+    Next i
+
+    ' Write output to CONCILIACIÓN
+    wsCONC.Cells.Clear
+    If keepCount > 1 Then
+        wsCONC.Range("A1").Resize(keepCount, lastCol).Value = vOut
+        ' Normalize & format dates in G (drop any time just in case)
+        With wsCONC.Range("G2:G" & keepCount)
+            .Value = Evaluate("IF(ROW(" & .Address & "),DATEVALUE(" & .Address & "))")
+            .NumberFormat = "[$-en-US]dd-mmm-yyyy"
+        End With
+        MsgBox "Processed: kept " & (keepCount - 1) & " row(s) for today's date in column G.", vbInformation
+    Else
+        ' Only header
+        wsCONC.Range("A1").Resize(1, lastCol).Value = vOut
+        MsgBox "No rows for today's date in column G.", vbInformation
+    End If
+
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
