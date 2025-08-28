@@ -1,0 +1,139 @@
+'=== Helpers ===
+Private Function MonthFromENAbbrev(ByVal mn As String) As Integer
+    Select Case UCase$(Left$(Trim$(mn), 3))
+        Case "JAN": MonthFromENAbbrev = 1
+        Case "FEB": MonthFromENAbbrev = 2
+        Case "MAR": MonthFromENAbbrev = 3
+        Case "APR": MonthFromENAbbrev = 4
+        Case "MAY": MonthFromENAbbrev = 5
+        Case "JUN": MonthFromENAbbrev = 6
+        Case "JUL": MonthFromENAbbrev = 7
+        Case "AUG": MonthFromENAbbrev = 8
+        Case "SEP": MonthFromENAbbrev = 9
+        Case "OCT": MonthFromENAbbrev = 10
+        Case "NOV": MonthFromENAbbrev = 11
+        Case "DEC": MonthFromENAbbrev = 12
+    End Select
+End Function
+
+Private Function CoerceDateFromText(ByVal txt As String) As Variant
+    ' Returns a Date (Variant/Date) if it can parse, else Empty
+    Dim s As String, p As Long, parts() As String
+    Dim d As Long, m As Long, y As Long
+    Dim tmp As Date
+
+    s = Trim$(txt)
+    If s = "" Then Exit Function
+
+    ' Remove time (anything after first space)
+    p = InStr(s, " ")
+    If p > 0 Then s = Left$(s, p - 1)
+
+    ' Try dd-mmm-yyyy with English month (e.g., 25-Aug-2025)
+    If InStr(1, s, "-", vbBinaryCompare) > 0 Then
+        parts = Split(s, "-")
+        If UBound(parts) = 2 Then
+            d = Val(parts(0))
+            m = MonthFromENAbbrev(parts(1))
+            y = Val(parts(2))
+            If m > 0 And d > 0 And y > 0 Then
+                CoerceDateFromText = DateSerial(y, m, d)
+                Exit Function
+            End If
+        End If
+    End If
+
+    ' Fallback: dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy
+    s = Replace(Replace(s, ".", "/"), "-", "/")
+    On Error Resume Next
+    tmp = CDate(s)
+    If Err.Number = 0 Then
+        CoerceDateFromText = DateValue(tmp)
+    End If
+    On Error GoTo 0
+End Function
+
+'=== Main step ===
+Sub Process_Today_From_DATA_To_CONCILIACION()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim rngData As Range, rngG As Range
+    Dim vIn As Variant, vOut As Variant
+    Dim i As Long, j As Long, keepCount As Long
+    Dim todayDate As Date
+    Dim coerced As Variant
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    todayDate = Date
+    lastCol = 38   ' AL
+
+    ' Find last used row in DATA based on column A
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow < 2 Then
+        wsCONC.Cells.Clear
+        MsgBox "No data to process in DATA.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' --- PRE-CLEAN G in DATA: remove time and coerce to real dates ---
+    For i = 2 To lastRow
+        coerced = CoerceDateFromText(CStr(wsDATA.Cells(i, "G").Value))
+        If Not IsEmpty(coerced) Then
+            wsDATA.Cells(i, "G").Value = coerced      ' true date, no time
+        End If
+    Next i
+    wsDATA.Range("G2:G" & lastRow).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+
+    ' Input range A1:AL(lastRow)
+    Set rngData = wsDATA.Range("A1").Resize(lastRow, lastCol)
+    vIn = rngData.Value
+
+    ' Output array
+    ReDim vOut(1 To lastRow, 1 To lastCol)
+
+    ' Header
+    For j = 1 To lastCol
+        vOut(1, j) = vIn(1, j)
+    Next j
+    keepCount = 1
+
+    ' Keep rows where G equals today (G is now real Date if parsable)
+    For i = 2 To lastRow
+        If IsDate(vIn(i, 7)) Then
+            If DateValue(vIn(i, 7)) = todayDate Then
+                keepCount = keepCount + 1
+                For j = 1 To lastCol
+                    vOut(keepCount, j) = vIn(i, j)
+                Next j
+            End If
+        End If
+    Next i
+
+    ' Write to CONCILIACIÓN
+    wsCONC.Cells.Clear
+    If keepCount > 1 Then
+        wsCONC.Range("A1").Resize(keepCount, lastCol).Value = vOut
+        wsCONC.Range("G2:G" & keepCount).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+        MsgBox "Processed: kept " & (keepCount - 1) & " row(s) with today's date in G.", vbInformation
+    Else
+        wsCONC.Range("A1").Resize(1, lastCol).Value = vOut
+        MsgBox "No rows for today's date in G.", vbInformation
+    End If
+
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
