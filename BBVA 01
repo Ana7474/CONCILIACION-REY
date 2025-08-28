@@ -1,0 +1,99 @@
+Sub Import_Two_Files_To_DATA_And_CONC()
+    Dim fd As FileDialog
+    Dim filePath1 As String, filePath2 As String
+    Dim wbSrc As Workbook, wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range, lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Then
+        MsgBox "Sheet 'DATA' not found.", vbCritical: Exit Sub
+    End If
+    If wsCONC Is Nothing Then
+        MsgBox "Sheet 'CONCILIACIÓN/CONCILIACION' not found.", vbCritical: Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean both target sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for FIRST Excel file (goes to DATA)
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select FIRST Excel file (to paste into DATA)"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath1 = .SelectedItems(1)
+    End With
+
+    ' 3) Open first workbook and copy first non-empty sheet to DATA!A1
+    Set wbSrc = Workbooks.Open(Filename:=filePath1)
+    gotData = False
+    For Each wsSrc In wbSrc.Worksheets
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+        If Not found Is Nothing Then
+            lastRow = found.Row
+            Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                         SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+            lastCol = found.Column
+            wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+            gotData = True
+            Exit For
+        End If
+    Next wsSrc
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "No data found in the first workbook.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 4) Ask for SECOND Excel file (goes to CONCILIACIÓN)
+    With fd
+        .Title = "Select SECOND Excel file (to paste into CONCILIACIÓN)"
+        If .Show <> -1 Then GoTo TidyExit
+        filePath2 = .SelectedItems(1)
+    End With
+
+    ' 5) Open second workbook and copy first non-empty sheet to CONCILIACIÓN!A1
+    Set wbSrc = Workbooks.Open(Filename:=filePath2)
+    gotData = False
+    For Each wsSrc In wbSrc.Worksheets
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+        If Not found Is Nothing Then
+            lastRow = found.Row
+            Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                         SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+            lastCol = found.Column
+            wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsCONC.Range("A1")
+            gotData = True
+            Exit For
+        End If
+    Next wsSrc
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "No data found in the second workbook.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    MsgBox "Imported successfully into DATA and CONCILIACIÓN.", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
