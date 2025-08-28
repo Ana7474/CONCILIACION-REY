@@ -1,0 +1,212 @@
+Option Explicit
+
+' --- Helper: coerce MX-style dd/mm/yyyy after trimming time like "p. m." ---
+Private Function CoerceDate_MX(ByVal txt As String) As Variant
+    Dim s As String, p As Long, parts() As String
+    Dim d As Long, m As Long, y As Long
+    s = Trim$(txt)
+    If s = "" Then Exit Function
+    ' remove time (anything after first space)
+    p = InStr(s, " ")
+    If p > 0 Then s = Left$(s, p - 1)
+    ' normalize separators
+    s = Replace(Replace(s, "-", "/"), ".", "/")
+    parts = Split(s, "/")
+    If UBound(parts) <> 2 Then Exit Function
+    d = Val(parts(0)): m = Val(parts(1)): y = Val(parts(2))
+    If d >= 1 And d <= 31 And m >= 1 And m <= 12 And y > 0 Then
+        On Error Resume Next
+        CoerceDate_MX = DateSerial(y, m, d)
+        On Error GoTo 0
+    End If
+End Function
+
+' --- Helper: uppercase without Spanish accents for robust comparisons ---
+Private Function UpperNoAccents(ByVal s As String) As String
+    s = UCase$(Trim$(s))
+    s = Replace(s, "Á", "A")
+    s = Replace(s, "É", "E")
+    s = Replace(s, "Í", "I")
+    s = Replace(s, "Ó", "O")
+    s = Replace(s, "Ú", "U")
+    s = Replace(s, "Ü", "U")
+    s = Replace(s, "Ñ", "N")
+    UpperNoAccents = s
+End Function
+
+' --- SWAP expander: appends a second operation when column V = "SWAP" ---
+Private Sub Expand_SWAP_InPlace(ByVal ws As Worksheet)
+    Dim lastRowInit As Long, lastRow As Long, i As Long, newRow As Long
+    Dim valV As String, side As String, sideNorm As String
+
+    lastRowInit = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    If lastRowInit < 2 Then Exit Sub
+
+    lastRow = lastRowInit ' we will append after current end
+
+    For i = 2 To lastRowInit
+        valV = UCase$(Trim$(CStr(ws.Cells(i, "V").Value)))
+        If valV = "SWAP" Then
+            newRow = lastRow + 1
+
+            ' A: copy A
+            ws.Cells(newRow, "A").Value = ws.Cells(i, "A").Value
+
+            ' B: flip Compró <-> Vendió (robust to accents/case)
+            side = CStr(ws.Cells(i, "B").Value)
+            sideNorm = UpperNoAccents(side)
+            If sideNorm = "COMPRO" Then
+                ws.Cells(newRow, "B").Value = "Vendió"
+            ElseIf sideNorm = "VENDIO" Then
+                ws.Cells(newRow, "B").Value = "Compró"
+            Else
+                ws.Cells(newRow, "B").Value = side ' leave as-is if unknown
+            End If
+
+            ' C: copy C
+            ws.Cells(newRow, "C").Value = ws.Cells(i, "C").Value
+            ' D: N
+            ws.Cells(newRow, "D").Value = ws.Cells(i, "N").Value
+            ' E: O
+            ws.Cells(newRow, "E").Value = ws.Cells(i, "O").Value
+            ' F: Q
+            ws.Cells(newRow, "F").Value = ws.Cells(i, "Q").Value
+            ' G: G (trade date)
+            ws.Cells(newRow, "G").Value = ws.Cells(i, "G").Value
+            ' H: M (other date)
+            ws.Cells(newRow, "H").Value = ws.Cells(i, "M").Value
+
+            ' Optional: clear rest of row A:AL to blank (not strictly necessary)
+            ' ws.Range(ws.Cells(newRow, "I"), ws.Cells(newRow, "AL")).ClearContents
+
+            lastRow = newRow
+        End If
+    Next i
+
+    ' Format dates for appended rows too (G/H)
+    If lastRow > 1 Then
+        ws.Range("G2:G" & lastRow).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+        ws.Range("H2:H" & lastRow).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+    End If
+End Sub
+
+' === MAIN MACRO (all-in-one) ===
+Public Sub Import_And_Process_Today_With_SWAP()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet, wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim rngSrc As Range, found As Range, gotData As Boolean
+    Dim todayDate As Date, coerced As Variant
+    Dim vIn As Variant, vOut As Variant
+    Dim i As Long, j As Long, keepCount As Long
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    todayDate = Date
+    lastCol = 38   ' A:AL
+
+    ' 1) Clean both sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open source workbook
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+
+    ' 4) Copy first non-empty sheet into DATA
+    gotData = False
+    For Each wsSrc In wbSrc.Worksheets
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+        If Not found Is Nothing Then
+            lastRow = found.Row
+            Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                         SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+            lastCol = found.Column
+            Set rngSrc = wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol))
+            rngSrc.Copy wsDATA.Range("A1")
+            gotData = True
+            Exit For
+        End If
+    Next wsSrc
+    wbSrc.Close SaveChanges:=False
+    If Not gotData Then
+        MsgBox "No data found in the selected workbook.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 5) Pre-clean column G in DATA (strip time and coerce dd/mm/yyyy)
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For i = 2 To lastRow
+        coerced = CoerceDate_MX(CStr(wsDATA.Cells(i, "G").Value))
+        If Not IsEmpty(coerced) Then
+            wsDATA.Cells(i, "G").Value = coerced
+        Else
+            wsDATA.Cells(i, "G").ClearContents
+        End If
+    Next i
+    wsDATA.Range("G2:G" & lastRow).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+
+    ' 6) Filter today's rows (A:AL) into CONCILIACIÓN
+    vIn = wsDATA.Range("A1").Resize(lastRow, 38).Value
+    ReDim vOut(1 To lastRow, 1 To 38)
+
+    ' header
+    For j = 1 To 38: vOut(1, j) = vIn(1, j): Next j
+    keepCount = 1
+    For i = 2 To lastRow
+        If IsDate(vIn(i, 7)) Then
+            If DateValue(vIn(i, 7)) = todayDate Then
+                keepCount = keepCount + 1
+                For j = 1 To 38
+                    vOut(keepCount, j) = vIn(i, j)
+                Next j
+            End If
+        End If
+    Next i
+
+    wsCONC.Cells.Clear
+    If keepCount > 1 Then
+        wsCONC.Range("A1").Resize(keepCount, 38).Value = vOut
+        wsCONC.Range("G2:G" & keepCount).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+    Else
+        wsCONC.Range("A1").Resize(1, 38).Value = vOut
+    End If
+
+    ' 7) Expand SWAP rows in CONCILIACIÓN (column V = "SWAP")
+    Call Expand_SWAP_InPlace(wsCONC)
+
+    MsgBox "Imported, filtered by today's date (G), and expanded SWAP operations.", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
