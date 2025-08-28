@@ -1,0 +1,134 @@
+Sub Import_And_Process_Today()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet, wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim rngSrc As Range
+    Dim found As Range, gotData As Boolean
+    Dim todayDate As Date, coerced As Variant
+    Dim vIn As Variant, vOut As Variant
+    Dim i As Long, j As Long, keepCount As Long
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    todayDate = Date
+    lastCol = 38    ' A:AL
+
+    ' 1) Clean both sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open source workbook
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+
+    ' 4) Copy first non-empty sheet into DATA
+    gotData = False
+    For Each wsSrc In wbSrc.Worksheets
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+        If Not found Is Nothing Then
+            lastRow = found.Row
+            Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                         SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+            lastCol = found.Column
+            Set rngSrc = wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol))
+            rngSrc.Copy wsDATA.Range("A1")
+            gotData = True
+            Exit For
+        End If
+    Next wsSrc
+    wbSrc.Close SaveChanges:=False
+    If Not gotData Then
+        MsgBox "No data found in the selected workbook.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 5) Pre-clean column G in DATA (strip time and coerce to date dd/mm/yyyy)
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For i = 2 To lastRow
+        coerced = CoerceDate_MX(CStr(wsDATA.Cells(i, "G").Value))
+        If Not IsEmpty(coerced) Then
+            wsDATA.Cells(i, "G").Value = coerced
+        Else
+            wsDATA.Cells(i, "G").ClearContents
+        End If
+    Next i
+    wsDATA.Range("G2:G" & lastRow).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+
+    ' 6) Filter only today’s rows A:AL into CONCILIACIÓN
+    vIn = wsDATA.Range("A1").Resize(lastRow, 38).Value
+    ReDim vOut(1 To lastRow, 1 To 38)
+    For j = 1 To 38: vOut(1, j) = vIn(1, j): Next j
+    keepCount = 1
+    For i = 2 To lastRow
+        If IsDate(vIn(i, 7)) Then
+            If DateValue(vIn(i, 7)) = todayDate Then
+                keepCount = keepCount + 1
+                For j = 1 To 38
+                    vOut(keepCount, j) = vIn(i, j)
+                Next j
+            End If
+        End If
+    Next i
+
+    wsCONC.Cells.Clear
+    If keepCount > 1 Then
+        wsCONC.Range("A1").Resize(keepCount, 38).Value = vOut
+        wsCONC.Range("G2:G" & keepCount).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+        MsgBox "Kept " & (keepCount - 1) & " row(s) for today's date in G.", vbInformation
+    Else
+        wsCONC.Range("A1").Resize(1, 38).Value = vOut
+        MsgBox "No rows matched today's date in G.", vbInformation
+    End If
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+' --- Helper function ---
+Private Function CoerceDate_MX(ByVal txt As String) As Variant
+    Dim s As String, p As Long, parts() As String
+    Dim d As Long, m As Long, y As Long
+    s = Trim$(txt)
+    If s = "" Then Exit Function
+    p = InStr(s, " ")
+    If p > 0 Then s = Left$(s, p - 1)
+    s = Replace(Replace(s, "-", "/"), ".", "/")
+    parts = Split(s, "/")
+    If UBound(parts) <> 2 Then Exit Function
+    d = Val(parts(0)): m = Val(parts(1)): y = Val(parts(2))
+    If d >= 1 And d <= 31 And m >= 1 And m <= 12 And y > 0 Then
+        On Error Resume Next
+        CoerceDate_MX = DateSerial(y, m, d)
+        On Error GoTo 0
+    End If
+End Function
