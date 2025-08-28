@@ -1,0 +1,110 @@
+' --- Helper: coerce MX-style dd/mm/yyyy (after trimming time) ---
+Private Function CoerceDate_MX(ByVal txt As String) As Variant
+    Dim s As String, p As Long, parts() As String
+    Dim d As Long, m As Long, y As Long
+    
+    s = Trim$(txt)
+    If s = "" Then Exit Function
+    
+    ' Remove time (anything after first space, handles "p. m." etc.)
+    p = InStr(s, " ")
+    If p > 0 Then s = Left$(s, p - 1)
+    
+    ' Normalize separators to "/"
+    s = Replace(Replace(s, "-", "/"), ".", "/")
+    parts = Split(s, "/")
+    If UBound(parts) <> 2 Then Exit Function
+    
+    ' Expect dd/mm/yyyy (MX)
+    d = Val(parts(0)): m = Val(parts(1)): y = Val(parts(2))
+    If d >= 1 And d <= 31 And m >= 1 And m <= 12 And y > 0 Then
+        On Error Resume Next
+        CoerceDate_MX = DateSerial(y, m, d)
+        On Error GoTo 0
+    End If
+End Function
+
+Sub Process_Today_From_DATA_To_CONCILIACION()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim vIn As Variant, vOut As Variant
+    Dim i As Long, j As Long, keepCount As Long
+    Dim todayDate As Date, coerced As Variant
+    
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    
+    todayDate = Date
+    lastCol = 38                     ' A:AL
+    
+    ' Last row by column A (adjust if you prefer another anchor)
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow < 2 Then
+        wsCONC.Cells.Clear
+        MsgBox "No data to process in DATA.", vbExclamation
+        GoTo TidyExit
+    End If
+    
+    ' PRE-CLEAN G in DATA: strip time and coerce dd/mm/yyyy
+    Dim g As Range
+    For i = 2 To lastRow
+        coerced = Empty
+        If Not IsEmpty(wsDATA.Cells(i, "G").Value) Then
+            coerced = CoerceDate_MX(CStr(wsDATA.Cells(i, "G").Value))
+        End If
+        If Not IsEmpty(coerced) Then
+            wsDATA.Cells(i, "G").Value = coerced     ' true date, no time
+        Else
+            ' If cannot parse, clear to avoid false positives
+            wsDATA.Cells(i, "G").ClearContents
+        End If
+    Next i
+    wsDATA.Range("G2:G" & lastRow).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+    
+    ' Read A1:AL(lastRow)
+    vIn = wsDATA.Range("A1").Resize(lastRow, lastCol).Value
+    ReDim vOut(1 To lastRow, 1 To lastCol)
+    
+    ' Header
+    For j = 1 To lastCol
+        vOut(1, j) = vIn(1, j)
+    Next j
+    keepCount = 1
+    
+    ' Keep rows where G equals today
+    For i = 2 To lastRow
+        If IsDate(vIn(i, 7)) Then
+            If DateValue(vIn(i, 7)) = todayDate Then
+                keepCount = keepCount + 1
+                For j = 1 To lastCol
+                    vOut(keepCount, j) = vIn(i, j)
+                Next j
+            End If
+        End If
+    Next i
+    
+    ' Output to CONCILIACIÓN
+    wsCONC.Cells.Clear
+    If keepCount > 1 Then
+        wsCONC.Range("A1").Resize(keepCount, lastCol).Value = vOut
+        wsCONC.Range("G2:G" & keepCount).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+        MsgBox "Kept " & (keepCount - 1) & " row(s) for today's date in G.", vbInformation
+    Else
+        wsCONC.Range("A1").Resize(1, lastCol).Value = vOut
+        MsgBox "No rows matched today's date in G.", vbInformation
+    End If
+    
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
