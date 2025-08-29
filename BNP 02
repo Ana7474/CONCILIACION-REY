@@ -1,0 +1,92 @@
+Sub ImportCSV_ProcessDATA_To_CONCILIACION()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook
+    Dim wsCSV As Worksheet, wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim i As Long, targetRow As Long
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean both sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for a CSV file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select a CSV file"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open the CSV and copy all to DATA
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' 4) Keep only rows with "Executed" in column A
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For i = lastRow To 2 Step -1
+        If UCase(Trim(wsDATA.Cells(i, "A").Value)) <> "EXECUTED" Then
+            wsDATA.Rows(i).Delete
+        End If
+    Next i
+
+    ' 5) Paste selected columns into CONCILIACIÓN in new order
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow < 2 Then
+        MsgBox "No Executed rows found in DATA.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' Headers
+    wsCONC.Range("A1").Value = "Trade Date"          ' G -> A
+    wsCONC.Range("B1").Value = "Settle Date"         ' H -> B
+    wsCONC.Range("C1").Value = "Column I"            ' I -> C
+    wsCONC.Range("D1").Value = "Column J"            ' J -> D
+    wsCONC.Range("E1").Value = "Column N"            ' N -> E
+    wsCONC.Range("F1").Value = "Column K"            ' K -> F
+    wsCONC.Range("G1").Value = "Column E"            ' E -> G
+    wsCONC.Range("H1").Value = "Column L"            ' L -> H
+
+    ' Data rows
+    targetRow = 2
+    For i = 2 To lastRow
+        wsCONC.Cells(targetRow, "A").Value = wsDATA.Cells(i, "G").Value
+        wsCONC.Cells(targetRow, "B").Value = wsDATA.Cells(i, "H").Value
+        wsCONC.Cells(targetRow, "C").Value = wsDATA.Cells(i, "I").Value
+        wsCONC.Cells(targetRow, "D").Value = wsDATA.Cells(i, "J").Value
+        wsCONC.Cells(targetRow, "E").Value = wsDATA.Cells(i, "N").Value
+        wsCONC.Cells(targetRow, "F").Value = wsDATA.Cells(i, "K").Value
+        wsCONC.Cells(targetRow, "G").Value = wsDATA.Cells(i, "E").Value
+        wsCONC.Cells(targetRow, "H").Value = wsDATA.Cells(i, "L").Value
+        targetRow = targetRow + 1
+    Next i
+
+    MsgBox "CSV imported, Executed rows kept, and reordered columns pasted into CONCILIACIÓN.", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
