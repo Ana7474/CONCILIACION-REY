@@ -1,0 +1,26 @@
+   ' 10) Guarda el libro en la ruta
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe" & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "BNP_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+
+AND FOR EXAMPLE BOFA DOES WORK
+
+
+    ' 9) Define la ruta
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        Exit Sub
+    End If
