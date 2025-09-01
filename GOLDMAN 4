@@ -1,0 +1,151 @@
+Sub CopyGoldman_To_CONCILIACION_AndClean()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet, wsGold As Worksheet
+    Dim lastRowGold As Long, lastColGold As Long
+    Dim lastRowConc As Long, i As Long
+    Dim valD As String, valK As String, valA As String
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    Set wsGold = ThisWorkbook.Sheets("GOLDMAN")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Or wsGold Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN / GOLDMAN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean DATA and CONCILIACIÓN
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Copy all content from GOLDMAN to CONCILIACIÓN
+    lastRowGold = wsGold.Cells(wsGold.Rows.Count, "A").End(xlUp).Row
+    lastColGold = wsGold.Cells(1, wsGold.Columns.Count).End(xlToLeft).Column
+    If lastRowGold >= 1 And lastColGold >= 1 Then
+        wsGold.Range(wsGold.Cells(1, 1), wsGold.Cells(lastRowGold, lastColGold)).Copy wsCONC.Range("A1")
+    End If
+
+    ' 3) Delete rows in CONCILIACIÓN where column D says "Sell / Buy"
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "D").End(xlUp).Row
+    For i = lastRowConc To 2 Step -1
+        valD = UCase$(Replace(Trim$(CStr(wsCONC.Cells(i, "D").Value)), " ", ""))
+        If valD = "SELL/BUY" Then wsCONC.Rows(i).Delete
+    Next i
+
+    ' 4) Delete rows in CONCILIACIÓN where column K says "cardej"
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "K").End(xlUp).Row
+    For i = lastRowConc To 2 Step -1
+        valK = UCase$(Trim$(CStr(wsCONC.Cells(i, "K").Value)))
+        If valK = "CARDEJ" Then wsCONC.Rows(i).Delete
+    Next i
+
+    ' 5) Clean column A: keep only the date (drop time like "07:50:39AM 29 Aug 25")
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    For i = 2 To lastRowConc
+        valA = Trim$(CStr(wsCONC.Cells(i, "A").Value))
+        If Len(valA) > 0 Then
+            If InStr(valA, " ") > 0 Then valA = Mid$(valA, InStr(valA, " ") + 1) ' take text after first space
+            wsCONC.Cells(i, "A").Value = NormalizeDate_Token(valA)
+        End If
+    Next i
+    wsCONC.Range("A2:A" & lastRowConc).NumberFormat = "dd-mmm-yy"
+
+    ' 6) Normalize column L dates (e.g., 29Aug25 -> 29-aug-25; 29-aug-25 stays)
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "L").End(xlUp).Row
+    For i = 2 To lastRowConc
+        Dim sL As String
+        sL = Trim$(CStr(wsCONC.Cells(i, "L").Value))
+        If Len(sL) > 0 Then
+            wsCONC.Cells(i, "L").Value = NormalizeDate_Token(sL)
+        End If
+    Next i
+    wsCONC.Range("L2:L" & lastRowConc).NumberFormat = "dd-mmm-yy"
+
+    MsgBox "Copied GOLDMAN → CONCILIACIÓN, removed 'Sell / Buy' (D), 'cardej' (K), and normalized dates in A & L.", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+'--- Helpers ---
+
+Private Function MonthFromAbbrev(ByVal s As String) As Integer
+    Dim m As String
+    m = LCase$(Left$(Trim$(s), 3))
+    Select Case m
+        Case "jan": MonthFromAbbrev = 1
+        Case "feb": MonthFromAbbrev = 2
+        Case "mar": MonthFromAbbrev = 3
+        Case "apr": MonthFromAbbrev = 4
+        Case "may": MonthFromAbbrev = 5
+        Case "jun": MonthFromAbbrev = 6
+        Case "jul": MonthFromAbbrev = 7
+        Case "aug": MonthFromAbbrev = 8
+        Case "sep": MonthFromAbbrev = 9
+        Case "oct": MonthFromAbbrev = 10
+        Case "nov": MonthFromAbbrev = 11
+        Case "dec": MonthFromAbbrev = 12
+    End Select
+End Function
+
+' Accepts: "29Aug25", "29-aug-25", "29 Aug 25", "02-sep-25"
+' Returns normalized "dd-mmm-yy" (lowercase month). If unparsable, returns the original.
+Private Function NormalizeDate_Token(ByVal txt As String) As String
+    Dim s As String, d As Integer, y As Integer, m As Integer
+    Dim parts() As String
+
+    s = Trim$(txt)
+    If s = "" Then NormalizeDate_Token = s: Exit Function
+
+    ' Case 1: dd-mmm-yy (hyphens)
+    If Len(s) >= 8 And Mid$(s, 3, 1) = "-" And Mid$(s, 7, 1) = "-" Then
+        On Error Resume Next
+        d = CInt(Left$(s, 2))
+        m = MonthFromAbbrev(Mid$(s, 4, 3))
+        y = CInt(Right$(s, 2))
+        On Error GoTo 0
+        If d >= 1 And d <= 31 And m >= 1 Then
+            NormalizeDate_Token = LCase$(Format(DateSerial(2000 + y, m, d), "dd-mmm-yy"))
+            Exit Function
+        End If
+    End If
+
+    ' Case 2: ddMmmyy (no separators), e.g., 29Aug25
+    If Len(s) >= 7 And IsNumeric(Left$(s, 2)) And Not IsNumeric(Mid$(s, 3, 1)) Then
+        On Error Resume Next
+        d = CInt(Left$(s, 2))
+        m = MonthFromAbbrev(Mid$(s, 3, 3))
+        y = CInt(Right$(s, 2))
+        On Error GoTo 0
+        If d >= 1 And d <= 31 And m >= 1 Then
+            NormalizeDate_Token = LCase$(Format(DateSerial(2000 + y, m, d), "dd-mmm-yy"))
+            Exit Function
+        End If
+    End If
+
+    ' Case 3: dd mmm yy (spaces)
+    If InStr(s, " ") > 0 Then
+        parts = Split(s, " ")
+        If UBound(parts) = 2 Then
+            On Error Resume Next
+            d = CInt(parts(0))
+            m = MonthFromAbbrev(parts(1))
+            y = CInt(parts(2))
+            On Error GoTo 0
+            If d >= 1 And d <= 31 And m >= 1 Then
+                NormalizeDate_Token = LCase$(Format(DateSerial(2000 + y, m, d), "dd-mmm-yy"))
+                Exit Function
+            End If
+        End If
+    End If
+
+    ' Fallback
+    NormalizeDate_Token = s
+End Function
