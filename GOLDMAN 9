@@ -1,0 +1,189 @@
+Option Explicit
+
+Sub Clean_GOLDMAN_Then_Map_To_CONCILIACION()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet, wsGold As Worksheet
+    Dim lastRowD As Long, i As Long
+    Dim valD As String, valK As String
+    Dim rawA As String, rawL As String, dVal As Variant
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    Set wsGold = ThisWorkbook.Sheets("GOLDMAN")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Or wsGold Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN / GOLDMAN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean DATA and CONCILIACIÓN
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' ---------------------------
+    ' 2) CLEANING IN GOLDMAN (last row always from column D)
+    ' ---------------------------
+
+    ' 2a) Remove rows where column D says "Sell / Buy" (or "Sell/Buy")
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = lastRowD To 2 Step -1
+            valD = UCase$(Replace(Trim$(CStr(wsGold.Cells(i, "D").Value)), " ", ""))
+            If valD = "SELL/BUY" Then wsGold.Rows(i).Delete
+        Next i
+    End If
+
+    ' 2b) Remove rows where column K says "cardej" (case-insensitive exact)
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = lastRowD To 2 Step -1
+            valK = UCase$(Trim$(CStr(wsGold.Cells(i, "K").Value)))
+            If valK = "CARDEJ" Then wsGold.Rows(i).Delete
+        Next i
+    End If
+
+    ' 2c) Clean column A: drop time part and convert to real Date; format dd-mmm-yy
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = 2 To lastRowD
+            rawA = Trim$(CStr(wsGold.Cells(i, "A").Value))
+            If Len(rawA) > 0 Then
+                If InStr(rawA, " ") > 0 Then rawA = Mid$(rawA, InStr(rawA, " ") + 1) ' keep after first space
+                dVal = ParseTokenToDate(rawA)
+                If IsDate(dVal) Then wsGold.Cells(i, "A").Value = dVal
+            End If
+        Next i
+        wsGold.Range("A2:A" & lastRowD).NumberFormat = "dd-mmm-yy"
+    End If
+
+    ' 2d) Normalize column L to real Date; format dd-mmm-yy
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = 2 To lastRowD
+            rawL = Trim$(CStr(wsGold.Cells(i, "L").Value))
+            If Len(rawL) > 0 Then
+                dVal = ParseTokenToDate(rawL)
+                If IsDate(dVal) Then wsGold.Cells(i, "L").Value = dVal
+            End If
+        Next i
+        wsGold.Range("L2:L" & lastRowD).NumberFormat = "dd-mmm-yy"
+    End If
+
+    ' ---------------------------
+    ' 3) MAP GOLDMAN → CONCILIACIÓN (size based on lastRowD)
+    ' ---------------------------
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD < 2 Then
+        MsgBox "No data found to map (after cleaning).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' Copy headers
+    wsCONC.Range("A1").Value = wsGold.Range("B1").Value  ' A <- B
+    wsCONC.Range("B1").Value = wsGold.Range("D1").Value  ' B <- D
+    wsCONC.Range("C1").Value = wsGold.Range("F1").Value  ' C <- F
+    wsCONC.Range("D1").Value = wsGold.Range("E1").Value  ' D <- E
+    wsCONC.Range("E1").Value = wsGold.Range("G1").Value  ' E <- G
+    wsCONC.Range("F1").Value = wsGold.Range("I1").Value  ' F <- I
+    wsCONC.Range("G1").Value = wsGold.Range("A1").Value  ' G <- A
+    wsCONC.Range("H1").Value = wsGold.Range("L1").Value  ' H <- L
+
+    ' Copy data (bulk by values) from rows 2..lastRowD
+    wsCONC.Range("A2").Resize(lastRowD - 1, 1).Value = wsGold.Range("B2").Resize(lastRowD - 1, 1).Value
+    wsCONC.Range("B2").Resize(lastRowD - 1, 1).Value = wsGold.Range("D2").Resize(lastRowD - 1, 1).Value
+    wsCONC.Range("C2").Resize(lastRowD - 1, 1).Value = wsGold.Range("F2").Resize(lastRowD - 1, 1).Value
+    wsCONC.Range("D2").Resize(lastRowD - 1, 1).Value = wsGold.Range("E2").Resize(lastRowD - 1, 1).Value
+    wsCONC.Range("E2").Resize(lastRowD - 1, 1).Value = wsGold.Range("G2").Resize(lastRowD - 1, 1).Value
+    wsCONC.Range("F2").Resize(lastRowD - 1, 1).Value = wsGold.Range("I2").Resize(lastRowD - 1, 1).Value
+    wsCONC.Range("G2").Resize(lastRowD - 1, 1).Value = wsGold.Range("A2").Resize(lastRowD - 1, 1).Value
+    wsCONC.Range("H2").Resize(lastRowD - 1, 1).Value = wsGold.Range("L2").Resize(lastRowD - 1, 1).Value
+
+    MsgBox "Done: Cleaned GOLDMAN (last row from column D) and mapped to CONCILIACIÓN.", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+' ===== Helpers =====
+
+Private Function MonthFromAbbrev(ByVal s As String) As Integer
+    Dim m As String
+    m = LCase$(Left$(Trim$(s), 3))
+    Select Case m
+        Case "jan": MonthFromAbbrev = 1
+        Case "feb": MonthFromAbbrev = 2
+        Case "mar": MonthFromAbbrev = 3
+        Case "apr": MonthFromAbbrev = 4
+        Case "may": MonthFromAbbrev = 5
+        Case "jun": MonthFromAbbrev = 6
+        Case "jul": MonthFromAbbrev = 7
+        Case "aug": MonthFromAbbrev = 8
+        Case "sep": MonthFromAbbrev = 9
+        Case "oct": MonthFromAbbrev = 10
+        Case "nov": MonthFromAbbrev = 11
+        Case "dec": MonthFromAbbrev = 12
+    End Select
+End Function
+
+' Returns a real Date (Variant/Date) for tokens like:
+'   "29Aug25", "29-aug-25", "29 Aug 25"
+' If it can’t parse, returns Empty.
+Private Function ParseTokenToDate(ByVal txt As String) As Variant
+    Dim s As String, d As Integer, y As Integer, m As Integer
+    Dim parts() As String
+
+    s = Trim$(txt)
+    If s = "" Then Exit Function
+
+    ' dd-mmm-yy (hyphens) e.g., 29-aug-25
+    If Len(s) >= 8 And Mid$(s, 3, 1) = "-" And Mid$(s, 7, 1) = "-" Then
+        On Error Resume Next
+        d = CInt(Left$(s, 2))
+        m = MonthFromAbbrev(Mid$(s, 4, 3))
+        y = CInt(Right$(s, 2))
+        If Err.Number = 0 And d >= 1 And d <= 31 And m >= 1 Then
+            ParseTokenToDate = DateSerial(2000 + y, m, d)
+            Exit Function
+        End If
+        Err.Clear
+        On Error GoTo 0
+    End If
+
+    ' ddMmmyy (no separators) e.g., 29Aug25
+    If Len(s) >= 7 And IsNumeric(Left$(s, 2)) And Not IsNumeric(Mid$(s, 3, 1)) Then
+        On Error Resume Next
+        d = CInt(Left$(s, 2))
+        m = MonthFromAbbrev(Mid$(s, 3, 3))
+        y = CInt(Right$(s, 2))
+        If Err.Number = 0 And d >= 1 And d <= 31 And m >= 1 Then
+            ParseTokenToDate = DateSerial(2000 + y, m, d)
+            Exit Function
+        End If
+        Err.Clear
+        On Error GoTo 0
+    End If
+
+    ' dd mmm yy (spaces) e.g., 29 Aug 25
+    If InStr(s, " ") > 0 Then
+        parts = Split(s, " ")
+        If UBound(parts) = 2 Then
+            On Error Resume Next
+            d = CInt(parts(0))
+            m = MonthFromAbbrev(parts(1))
+            y = CInt(parts(2))
+            If Err.Number = 0 And d >= 1 And d <= 31 And m >= 1 Then
+                ParseTokenToDate = DateSerial(2000 + y, m, d)
+                Exit Function
+            End If
+            Err.Clear
+            On Error GoTo 0
+        End If
+    End If
+End Function
