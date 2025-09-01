@@ -1,0 +1,131 @@
+Option Explicit
+
+Sub Import_Excel_To_DATA_And_Map_To_CONCILIACION_KeepFormats()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim lastRowDATA As Long, i As Long
+    Dim cellVal As String
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean DATA and CONCILIACIÓN
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for an Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open source workbook
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the selected Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+
+    ' 4) Copy FIRST sheet's real used range -> DATA!A1
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "The first sheet appears to be empty (no data found).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 5) Map DATA → CONCILIACIÓN (keep formats). Size based on column G.
+    lastRowDATA = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+    If lastRowDATA < 1 Then GoTo TidyExit
+
+    ' A <- G
+    wsDATA.Range("G1:G" & lastRowDATA).Copy
+    wsCONC.Range("A1").PasteSpecial xlPasteAll
+
+    ' B <- N
+    wsDATA.Range("N1:N" & lastRowDATA).Copy
+    wsCONC.Range("B1").PasteSpecial xlPasteAll
+
+    ' C <- H
+    wsDATA.Range("H1:H" & lastRowDATA).Copy
+    wsCONC.Range("C1").PasteSpecial xlPasteAll
+
+    ' D <- I
+    wsDATA.Range("I1:I" & lastRowDATA).Copy
+    wsCONC.Range("D1").PasteSpecial xlPasteAll
+
+    ' E <- K
+    wsDATA.Range("K1:K" & lastRowDATA).Copy
+    wsCONC.Range("E1").PasteSpecial xlPasteAll
+
+    ' F <- S
+    wsDATA.Range("S1:S" & lastRowDATA).Copy
+    wsCONC.Range("F1").PasteSpecial xlPasteAll
+
+    ' G <- E
+    wsDATA.Range("E1:E" & lastRowDATA).Copy
+    wsCONC.Range("G1").PasteSpecial xlPasteAll
+
+    ' H <- M
+    wsDATA.Range("M1:M" & lastRowDATA).Copy
+    wsCONC.Range("H1").PasteSpecial xlPasteAll
+
+    ' 6) Clean column E in CONCILIACIÓN → keep only numeric portion
+    lastRowDATA = wsCONC.Cells(wsCONC.Rows.Count, "E").End(xlUp).Row
+    For i = 2 To lastRowDATA
+        cellVal = Trim(CStr(wsCONC.Cells(i, "E").Value))
+        If Len(cellVal) > 0 Then
+            ' Remove trailing text after the number
+            If IsNumeric(Left(cellVal, InStrRev(cellVal, " ") - 1)) Then
+                cellVal = Left(cellVal, InStrRev(cellVal, " ") - 1)
+            End If
+            ' Ensure it's numeric
+            If IsNumeric(cellVal) Then wsCONC.Cells(i, "E").Value = CDbl(cellVal)
+        End If
+    Next i
+    wsCONC.Range("E2:E" & lastRowDATA).NumberFormat = "#,##0.00"
+
+    MsgBox "Imported into DATA and mapped into CONCILIACIÓN (formats preserved, E cleaned).", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
