@@ -1,0 +1,137 @@
+Option Explicit
+
+Sub Check_Todays_Files_And_Email()
+    Dim shellObj As Object
+    Dim saveRoot As String
+    Dim pathCasa As String, pathInter As String
+    Dim todayStamp As String
+    Dim foundCasa As Collection, missingCasa As Collection
+    Dim foundInter As Collection, missingInter As Collection
+    Dim combinedFound As Collection, combinedMissing As Collection
+    Dim bodyText As String
+    Dim i As Long, v As Variant
+
+    ' Get Documents (localized) path
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    
+    ' Folders
+    pathCasa = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+    pathInter = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+    
+    ' Today as yyyymmdd
+    todayStamp = Format(Date, "yyyymmdd")
+    
+    ' Prepare collections
+    Set foundCasa = New Collection
+    Set missingCasa = New Collection
+    Set foundInter = New Collection
+    Set missingInter = New Collection
+    Set combinedFound = New Collection
+    Set combinedMissing = New Collection
+    
+    ' Expected names
+    Dim expectCasa As Variant, expectInter As Variant
+    expectCasa = Array("BOFA", "BNP", "MORGAN")
+    expectInter = Array("JP MORGAN", "GOLDMAN", "ADM")
+    
+    ' Check CASA
+    If Dir(pathCasa, vbDirectory) <> "" Then
+        Call CheckSet(pathCasa, expectCasa, todayStamp, foundCasa, missingCasa)
+    Else
+        For Each v In expectCasa
+            missingCasa.Add v & " (folder missing)"
+        Next v
+    End If
+    
+    ' Check INTER
+    If Dir(pathInter, vbDirectory) <> "" Then
+        Call CheckSet(pathInter, expectInter, todayStamp, foundInter, missingInter)
+    Else
+        For Each v In expectInter
+            missingInter.Add v & " (folder missing)"
+        Next v
+    End If
+    
+    ' Merge results
+    Call AppendCollection(combinedFound, foundCasa)
+    Call AppendCollection(combinedFound, foundInter)
+    Call AppendCollection(combinedMissing, missingCasa)
+    Call AppendCollection(combinedMissing, missingInter)
+    
+    ' Build the variable part (intermediarios found)
+    Dim intermediarios As String
+    If combinedFound.Count > 0 Then
+        For i = 1 To combinedFound.Count
+            intermediarios = intermediarios & vbCrLf & " " & combinedFound(i)
+        Next i
+    Else
+        intermediarios = vbCrLf & " (ninguno encontrado para hoy)"
+    End If
+    
+    ' Build body with your template
+    bodyText = "Las operaciones capturadas con los siguientes intermediarios." & vbCrLf & vbCrLf & _
+               intermediarios & vbCrLf & vbCrLf & _
+               "Están conciliadas con nuestras plataformas vs sistema SIGLO CASA DE BOLSA Y BANCO sin diferencias." & vbCrLf & vbCrLf & _
+               "Saludos."
+    
+    ' Create Outlook draft with addresses and subject
+    Call CreateOutlookDraft( _
+        "CONFIRMACION OPERACIONES INTERBANCARIAS", _
+        bodyText, _
+        "liq_internacionales@actinver.com.mx", _
+        "mccambios@actinver.com.mx")
+    
+    MsgBox "Done. Draft email prepared with today's file check.", vbInformation
+End Sub
+
+' === Helpers ===
+
+Private Sub CheckSet(ByVal folderPath As String, ByVal expected As Variant, _
+                     ByVal yyyymmdd As String, ByRef foundList As Collection, ByRef missingList As Collection)
+    Dim baseName As Variant, pattern As String, hit As String
+    For Each baseName In expected
+        pattern = folderPath & baseName & "_" & yyyymmdd & ".*"
+        hit = Dir(pattern, vbNormal)
+        If Len(hit) > 0 Then
+            ' Pretty names
+            Select Case UCase(baseName)
+                Case "BOFA": foundList.Add "BANK OF AMERICA"
+                Case "BNP": foundList.Add "BNP"
+                Case "MORGAN": foundList.Add "MORGAN STANLEY"
+                Case "JP MORGAN": foundList.Add "JP MORGAN CHASE BANK"
+                Case "GOLDMAN": foundList.Add "GOLDMAN SACHS"
+                Case "ADM": foundList.Add "ADM"
+                Case Else: foundList.Add baseName
+            End Select
+        Else
+            missingList.Add baseName
+        End If
+    Next baseName
+End Sub
+
+Private Sub AppendCollection(ByRef dst As Collection, ByRef src As Collection)
+    Dim i As Long
+    For i = 1 To src.Count
+        dst.Add src(i)
+    Next i
+End Sub
+
+Private Sub CreateOutlookDraft(ByVal subj As String, ByVal body As String, ByVal toAddr As String, ByVal ccAddr As String)
+    On Error Resume Next
+    Dim olApp As Object, olMail As Object
+    Set olApp = GetObject(Class:="Outlook.Application")
+    If olApp Is Nothing Then Set olApp = CreateObject("Outlook.Application")
+    If olApp Is Nothing Then
+        MsgBox "Outlook is not available.", vbExclamation
+        Exit Sub
+    End If
+    Set olMail = olApp.CreateItem(0)
+    With olMail
+        .To = toAddr
+        .CC = ccAddr
+        .Subject = subj
+        .Body = body
+        .Display
+    End With
+End Sub
