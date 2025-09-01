@@ -1,0 +1,39 @@
+Sub Clean_GOLDMAN_Delete_SellBuy()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim i As Long
+    Dim valD As String
+    
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("GOLDMAN")
+    On Error GoTo 0
+    If ws Is Nothing Then
+        MsgBox "Sheet 'GOLDMAN' not found.", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' Find last row based on column D (adjust if needed)
+    lastRow = ws.Cells(ws.Rows.Count, "D").End(xlUp).Row
+    If lastRow < 2 Then GoTo TidyExit  ' no data rows
+
+    ' If an autofilter is on, clear it so all rows are considered
+    If ws.AutoFilterMode Then ws.AutoFilterMode = False
+
+    ' Delete rows where D (after headers) says "Sell / Buy" (case/space-insensitive)
+    For i = lastRow To 2 Step -1
+        valD = UCase$(Replace(Trim$(CStr(ws.Cells(i, "D").Value)), " ", ""))
+        ' Compare against SELL/BUY without spaces to catch "Sell / Buy" and "Sell/Buy"
+        If valD = "SELL/BUY" Then
+            ws.Rows(i).Delete
+        End If
+    Next i
+
+    MsgBox "Done: rows with 'Sell / Buy' in column D were removed.", vbInformation
+
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
