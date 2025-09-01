@@ -1,0 +1,14 @@
+Dim raw As String, norm As String
+raw = CStr(wsGold.Cells(r, "D").Value)
+
+' normalize
+norm = Replace(raw, ChrW(&HA0), " ") ' non-breaking space to normal space
+norm = Application.WorksheetFunction.Trim(norm)
+norm = Replace(norm, "\", "/")
+norm = Replace(norm, "／", "/")
+norm = Replace(norm, " ", "") ' drop spaces
+norm = UCase$(norm)
+
+If norm = "SELL/BUY" Or norm = "BUY/SELL" Or norm = "COMPRA/VENTA" Then
+    wsGold.Rows(r).Delete
+End If
