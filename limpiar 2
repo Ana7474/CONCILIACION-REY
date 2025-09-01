@@ -1,0 +1,39 @@
+Option Explicit
+
+Sub Run_Selected_From_MacroSheet()
+    Dim ws As Worksheet
+    Dim rawText As String, key As String
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("MACRO")
+    On Error GoTo 0
+    If ws Is Nothing Then
+        MsgBox "Sheet 'MACRO' not found.", vbCritical
+        Exit Sub
+    End If
+
+    rawText = CStr(ws.Range("C12").Value2)
+    key = UCase$(WorksheetFunction.Trim(rawText))
+
+    On Error GoTo Handler
+
+    Select Case key
+        Case "ADM":        Call ADM
+        Case "BBVA":       Call BBVA
+        Case "BNP":        Call BNP
+        Case "BOFA":       Call BOFA
+        Case "GOLDMAN":    Call GOLDMAN
+        Case "JP MORGAN", "JPMORGAN": Call JPMORGAN
+        Case "MORGAN":     Call MORGAN
+        Case Else
+            MsgBox "Unrecognized selection in C12:E13: '" & rawText & "'" & vbCrLf & _
+                   "Valid: ADM, BBVA, BNP, BOFA, GOLDMAN, JP MORGAN, MORGAN.", vbExclamation
+            Exit Sub
+    End Select
+
+    Exit Sub
+
+Handler:
+    MsgBox "Couldn't run the selected macro. " & vbCrLf & _
+           "Check that it exists in this workbook (same VBA project).", vbCritical
+End Sub
