@@ -1,0 +1,57 @@
+Option Explicit
+
+Sub Clean_DATA_CONCILIACION_GOLDMAN()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet, wsGold As Worksheet
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    Set wsGold = ThisWorkbook.Sheets("GOLDMAN")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing And wsCONC Is Nothing And wsGold Is Nothing Then
+        MsgBox "Sheets not found: DATA, CONCILIACIÓN/CONCILIACION, GOLDMAN.", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    If Not wsDATA Is Nothing Then Call ClearSheetCompletely(wsDATA)
+    If Not wsCONC Is Nothing Then Call ClearSheetCompletely(wsCONC)
+    If Not wsGold Is Nothing Then Call ClearSheetCompletely(wsGold)
+
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+
+    MsgBox "Cleaned: DATA, CONCILIACIÓN/CONCILIACION, and GOLDMAN.", vbInformation
+End Sub
+
+Private Sub ClearSheetCompletely(ByVal ws As Worksheet)
+    On Error Resume Next
+
+    ' Remove filters to ensure all rows are affected
+    If ws.AutoFilterMode Then ws.AutoFilterMode = False
+
+    ' Unhide rows/columns (so Clear applies everywhere)
+    ws.Cells.EntireRow.Hidden = False
+    ws.Cells.EntireColumn.Hidden = False
+
+    ' Unmerge any cells
+    ws.Cells.UnMerge
+
+    ' Clear conditional formats
+    ws.Cells.FormatConditions.Delete
+
+    ' Clear everything (values, formats, comments, etc.)
+    ws.Cells.Clear
+
+    ' Optional: reset column widths to default (comment out if not desired)
+    ' ws.Cells.ColumnWidth = 8.43
+
+    ' Optional: reset row heights to default (comment out if not desired)
+    ' ws.Cells.RowHeight = 15
+
+    On Error GoTo 0
+End Sub
