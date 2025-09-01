@@ -1,0 +1,222 @@
+Option Explicit
+
+Sub Import_Excel_To_DATA_And_Map_To_CONCILIACION_ADM()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook, wbNew As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim lastRowDATA As Long, lastRowConc As Long, i As Long
+    Dim cellVal As String, part As String, decSep As String
+    Dim shellObj As Object, saveRoot As String, savePath As String, fileName As String, fullSave As String
+    Dim todayDate As Date
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    todayDate = Date
+    decSep = Application.International(xlDecimalSeparator)
+
+    ' 1) Clean DATA and CONCILIACIÓN
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for an Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open source workbook
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the selected Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+
+    ' 4) Copy FIRST sheet's real used range -> DATA!A1
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "The first sheet appears to be empty (no data found).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 5) Map DATA → CONCILIACIÓN (keep formats). Size based on column G (source of CONC A)
+    lastRowDATA = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+    If lastRowDATA < 1 Then GoTo TidyExit
+
+    ' A <- G
+    wsDATA.Range("G1:G" & lastRowDATA).Copy
+    wsCONC.Range("A1").PasteSpecial xlPasteAll
+
+    ' B <- N
+    wsDATA.Range("N1:N" & lastRowDATA).Copy
+    wsCONC.Range("B1").PasteSpecial xlPasteAll
+
+    ' C <- H
+    wsDATA.Range("H1:H" & lastRowDATA).Copy
+    wsCONC.Range("C1").PasteSpecial xlPasteAll
+
+    ' D <- I
+    wsDATA.Range("I1:I" & lastRowDATA).Copy
+    wsCONC.Range("D1").PasteSpecial xlPasteAll
+
+    ' E <- K
+    wsDATA.Range("K1:K" & lastRowDATA).Copy
+    wsCONC.Range("E1").PasteSpecial xlPasteAll
+
+    ' F <- S
+    wsDATA.Range("S1:S" & lastRowDATA).Copy
+    wsCONC.Range("F1").PasteSpecial xlPasteAll
+
+    ' G <- E
+    wsDATA.Range("E1:E" & lastRowDATA).Copy
+    wsCONC.Range("G1").PasteSpecial xlPasteAll
+
+    ' H <- M
+    wsDATA.Range("M1:M" & lastRowDATA).Copy
+    wsCONC.Range("H1").PasteSpecial xlPasteAll
+
+    ' 6) Clean column E in CONCILIACIÓN → keep only numeric portion (e.g., "9,330,200.00 MXN" -> 9330200.00)
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "E").End(xlUp).Row
+    For i = 2 To lastRowConc
+        cellVal = Trim(CStr(wsCONC.Cells(i, "E").Value))
+        If Len(cellVal) > 0 Then
+            ' if there's a space, take text before the first space (drop currency)
+            If InStr(cellVal, " ") > 0 Then
+                part = Left$(cellVal, InStr(cellVal, " ") - 1)
+            Else
+                part = cellVal
+            End If
+            ' remove thousands separators and normalize decimal to system
+            part = Replace(part, ",", "") ' remove thousands commas
+            If decSep <> "." Then part = Replace(part, ".", decSep)
+            On Error Resume Next
+            wsCONC.Cells(i, "E").Value = CDbl(part)
+            On Error GoTo 0
+        End If
+    Next i
+
+    ' 7) Convert D, E, F into numbers with formatting
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "D").End(xlUp).Row
+    For i = 2 To lastRowConc
+        ' D
+        If Not IsNumeric(wsCONC.Cells(i, "D").Value) Then
+            cellVal = CStr(wsCONC.Cells(i, "D").Value)
+            cellVal = Replace(cellVal, ",", "")
+            If decSep <> "." Then cellVal = Replace(cellVal, ".", decSep)
+            On Error Resume Next
+            wsCONC.Cells(i, "D").Value = CDbl(cellVal)
+            On Error GoTo 0
+        End If
+        ' E (already handled above, but ensure numeric)
+        If Not IsNumeric(wsCONC.Cells(i, "E").Value) Then
+            cellVal = CStr(wsCONC.Cells(i, "E").Value)
+            cellVal = Replace(cellVal, ",", "")
+            If decSep <> "." Then cellVal = Replace(cellVal, ".", decSep)
+            On Error Resume Next
+            wsCONC.Cells(i, "E").Value = CDbl(cellVal)
+            On Error GoTo 0
+        End If
+        ' F
+        If Not IsNumeric(wsCONC.Cells(i, "F").Value) Then
+            cellVal = CStr(wsCONC.Cells(i, "F").Value)
+            cellVal = Replace(cellVal, ",", "")
+            If decSep <> "." Then cellVal = Replace(cellVal, ".", decSep)
+            On Error Resume Next
+            wsCONC.Cells(i, "F").Value = CDbl(cellVal)
+            On Error GoTo 0
+        End If
+    Next i
+
+    ' Format D and E with 2 decimals (thousands separators)
+    wsCONC.Range("D2:D" & lastRowConc).NumberFormat = "#,##0.00"
+    wsCONC.Range("E2:E" & lastRowConc).NumberFormat = "#,##0.00"
+    ' Format F with up to 7 decimals
+    wsCONC.Range("F2:F" & lastRowConc).NumberFormat = "#,##0.0000000"
+
+    ' 8) Keep only today’s rows in column G
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "G").End(xlUp).Row
+    For i = lastRowConc To 2 Step -1
+        If IsDate(wsCONC.Cells(i, "G").Value) Then
+            If DateValue(wsCONC.Cells(i, "G").Value) <> todayDate Then
+                wsCONC.Rows(i).Delete
+            End If
+        Else
+            wsCONC.Rows(i).Delete
+        End If
+    Next i
+
+    ' Ensure there are data rows left
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    If lastRowConc < 2 Then
+        MsgBox "No rows with today's date in column G. File will not be saved.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 9) Save result as ADM_yyyymmdd.xlsx (Hoja1) in Documents\VARIOS\INTERMEDIARIOS CASA DE BOLSA
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "The folder does not exist: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "ADM_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs Filename:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Done: imported, mapped, cleaned, kept only today's G, and saved as " & fullSave, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
