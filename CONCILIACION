@@ -1,0 +1,48 @@
+Option Explicit
+
+Sub Run_Selected_From_MacroSheet()
+    Dim ws As Worksheet
+    Dim rawText As String, key As String, macroName As String
+    Dim fullName As String
+
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("MACRO")
+    On Error GoTo 0
+    If ws Is Nothing Then
+        MsgBox "Sheet 'MACRO' not found.", vbCritical
+        Exit Sub
+    End If
+
+    ' Read the merged block's value from its top-left cell (C12)
+    rawText = CStr(ws.Range("C12").Value2)
+
+    ' Normalize: trim, collapse spaces, uppercase
+    key = UCase$(WorksheetFunction.Trim(rawText))
+
+    ' Map the normalized key to the actual macro name
+    Select Case key
+        Case "ADM":            macroName = "ADM"
+        Case "BBVA":           macroName = "BBVA"
+        Case "BNP":            macroName = "BNP"
+        Case "BOFA":           macroName = "BOFA"
+        Case "GOLDMAN":        macroName = "GOLDMAN"
+        Case "JP MORGAN", "JPMORGAN", "JP MORGAN" ' (includes non-breaking space)
+            macroName = "JPMORGAN"
+        Case "MORGAN":         macroName = "MORGAN"
+        Case Else
+            MsgBox "Unrecognized selection in C12:E13: '" & rawText & "'" & vbCrLf & _
+                   "Valid options: ADM, BBVA, BNP, BOFA, GOLDMAN, JP MORGAN, MORGAN.", vbExclamation
+            Exit Sub
+    End Select
+
+    ' Try to run the macro (qualify to this workbook)
+    fullName = ThisWorkbook.Name & "!" & macroName
+
+    On Error GoTo RunErr
+    Application.Run fullName
+    Exit Sub
+
+RunErr:
+    MsgBox "Couldn't run macro '" & macroName & "'." & vbCrLf & _
+           "Make sure it exists and is Public in this workbook.", vbCritical
+End Sub
