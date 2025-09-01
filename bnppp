@@ -1,0 +1,169 @@
+Public Sub BNP()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook, wbNew As Workbook
+    Dim wsCSV As Worksheet, wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long, lastRowConc As Long
+    Dim i As Long, s As String, p As Long, d As Variant
+    Dim tmpVal As Variant, bVal As String
+    Dim shellObj As Object, saveRoot As String, savePath As String, fileName As String, fullSave As String
+    Dim todayDate As Date
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    todayDate = Date
+
+    ' 1) Limpia ambas hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Selecciona el archivo CSV (CRUDO)
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar Archivo csv"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abre el archivo e importa los datos a DATA
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' 4) Mantiene solo las filas con "EXECUTED"
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For i = lastRow To 2 Step -1
+        If UCase$(Trim$(wsDATA.Cells(i, "A").Value)) <> "EXECUTED" Then
+            wsDATA.Rows(i).Delete
+        End If
+    Next i
+
+    ' 5) Pega por columnas
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow < 2 Then
+        MsgBox "No Executed rows found in DATA.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' Mantiene encabezados
+    wsCONC.Range("A1").Value = wsDATA.Range("G1").Value
+    wsCONC.Range("B1").Value = wsDATA.Range("H1").Value
+    wsCONC.Range("C1").Value = wsDATA.Range("I1").Value
+    wsCONC.Range("D1").Value = wsDATA.Range("J1").Value
+    wsCONC.Range("E1").Value = wsDATA.Range("N1").Value
+    wsCONC.Range("F1").Value = wsDATA.Range("K1").Value
+    wsCONC.Range("G1").Value = wsDATA.Range("E1").Value
+    wsCONC.Range("H1").Value = wsDATA.Range("L1").Value
+
+    ' Datos
+    wsCONC.Range("A2").Resize(lastRow - 1).Value = wsDATA.Range("G2").Resize(lastRow - 1).Value
+    wsCONC.Range("B2").Resize(lastRow - 1).Value = wsDATA.Range("H2").Resize(lastRow - 1).Value
+    wsCONC.Range("C2").Resize(lastRow - 1).Value = wsDATA.Range("I2").Resize(lastRow - 1).Value
+    wsCONC.Range("D2").Resize(lastRow - 1).Value = wsDATA.Range("J2").Resize(lastRow - 1).Value
+    wsCONC.Range("E2").Resize(lastRow - 1).Value = wsDATA.Range("N2").Resize(lastRow - 1).Value
+    wsCONC.Range("F2").Resize(lastRow - 1).Value = wsDATA.Range("K2").Resize(lastRow - 1).Value
+    wsCONC.Range("G2").Resize(lastRow - 1).Value = wsDATA.Range("E2").Resize(lastRow - 1).Value
+    wsCONC.Range("H2").Resize(lastRow - 1).Value = wsDATA.Range("L2").Resize(lastRow - 1).Value
+
+    ' 6) Arregla las fechas quitando hora
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    For i = 2 To lastRowConc
+        s = CStr(wsCONC.Cells(i, "G").Value)
+        If Len(s) > 0 Then
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)
+            On Error Resume Next
+            d = CDate(s)
+            On Error GoTo 0
+            If IsDate(d) Then wsCONC.Cells(i, "G").Value = DateValue(d)
+        End If
+    Next i
+    wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
+
+    ' 7) Cambia el sentido de las CAD
+    For i = 2 To lastRowConc
+        If UCase$(Trim$(wsCONC.Cells(i, "C").Value)) = "CAD" Then
+            tmpVal = wsCONC.Cells(i, "D").Value
+            wsCONC.Cells(i, "D").Value = wsCONC.Cells(i, "E").Value
+            wsCONC.Cells(i, "E").Value = tmpVal
+
+            bVal = UCase$(Trim$(wsCONC.Cells(i, "B").Value))
+            If bVal = "S" Then
+                wsCONC.Cells(i, "B").Value = "B"
+            ElseIf bVal = "B" Then
+                wsCONC.Cells(i, "B").Value = "S"
+            End If
+        End If
+    Next i
+
+    ' 8) Da formato a los números
+    wsCONC.Range("D2:D" & lastRowConc).NumberFormat = "#,##0"
+    wsCONC.Range("E2:E" & lastRowConc).NumberFormat = "#,##0"
+
+    ' 9) Mantiene solo la fecha actual
+    For i = lastRowConc To 2 Step -1
+        If IsDate(wsCONC.Cells(i, "G").Value) Then
+            If DateValue(wsCONC.Cells(i, "G").Value) <> todayDate Then
+                wsCONC.Rows(i).Delete
+            End If
+        Else
+            wsCONC.Rows(i).Delete
+        End If
+    Next i
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+
+    If lastRowConc < 2 Then
+        MsgBox "No rows with today's date found in column G. File will not be saved.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 10) Guarda el libro en la ruta
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "The folder does not exist: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "BNP_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Done: file saved as " & fullSave, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
