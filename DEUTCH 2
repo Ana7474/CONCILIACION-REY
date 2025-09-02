@@ -1,0 +1,140 @@
+Option Explicit
+
+Sub ImportExcelToDATA_WithSwapSplit()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim r As Long
+    Dim valA As String, norm As String
+    
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    
+    ' 1) Clean DATA and CONCILIACIÓN
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+    
+    ' 2) Ask for an Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+    
+    ' 3) Open source workbook
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the selected Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+    
+    ' 4) Copy FIRST sheet's used range -> DATA!A1
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+    
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+    
+    wbSrc.Close SaveChanges:=False
+    
+    If Not gotData Then
+        MsgBox "The first sheet appears to be empty (no data found).", vbExclamation
+        GoTo TidyExit
+    End If
+    
+    ' 5) Delete rows in DATA where col A is Canceled/Cancelled
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For r = lastRow To 2 Step -1
+        valA = CStr(wsDATA.Cells(r, "A").Value)
+        norm = UCase$(Trim(valA))
+        norm = Replace(norm, "CANCELLED", "CANCELED")
+        If norm = "CANCELED" Then wsDATA.Rows(r).Delete
+    Next r
+    
+    ' 6) Handle SWAP rows
+    Dim initLast As Long, newRow As Long
+    initLast = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If initLast >= 2 Then
+        For r = 2 To initLast
+            If UCase$(Trim$(CStr(wsDATA.Cells(r, "H").Value))) = "SWAP" Then
+                newRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row + 1
+                wsDATA.Cells(newRow, "E").Value = wsDATA.Cells(r, "E").Value
+                If Val(wsDATA.Cells(r, "J").Value) < 0 Then
+                    wsDATA.Cells(r, "G").Value = "Sell"
+                ElseIf Val(wsDATA.Cells(r, "J").Value) > 0 Then
+                    wsDATA.Cells(r, "G").Value = "Buy"
+                End If
+                If Val(wsDATA.Cells(r, "V").Value) < 0 Then
+                    wsDATA.Cells(newRow, "G").Value = "Sell"
+                ElseIf Val(wsDATA.Cells(r, "V").Value) > 0 Then
+                    wsDATA.Cells(newRow, "G").Value = "Buy"
+                End If
+                wsDATA.Cells(newRow, "I").Value = wsDATA.Cells(r, "I").Value
+                wsDATA.Cells(newRow, "J").Value = wsDATA.Cells(r, "V").Value
+                wsDATA.Cells(newRow, "K").Value = wsDATA.Cells(r, "K").Value
+                wsDATA.Cells(newRow, "N").Value = wsDATA.Cells(r, "W").Value
+                wsDATA.Cells(newRow, "O").Value = wsDATA.Cells(r, "O").Value
+            End If
+        Next r
+    End If
+    
+    ' 7) Paste into CONCILIACIÓN by column mapping
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow >= 2 Then
+        ' headers
+        wsCONC.Range("A1").Value = wsDATA.Range("I1").Value
+        wsCONC.Range("B1").Value = wsDATA.Range("G1").Value
+        wsCONC.Range("C1").Value = wsDATA.Range("K1").Value
+        wsCONC.Range("D1").Value = wsDATA.Range("J1").Value
+        wsCONC.Range("E1").Value = wsDATA.Range("N1").Value
+        wsCONC.Range("F1").Value = wsDATA.Range("M1").Value
+        wsCONC.Range("G1").Value = wsDATA.Range("E1").Value
+        wsCONC.Range("H1").Value = wsDATA.Range("O1").Value
+        
+        ' data
+        wsCONC.Range("A2").Resize(lastRow - 1).Value = wsDATA.Range("I2").Resize(lastRow - 1).Value
+        wsCONC.Range("B2").Resize(lastRow - 1).Value = wsDATA.Range("G2").Resize(lastRow - 1).Value
+        wsCONC.Range("C2").Resize(lastRow - 1).Value = wsDATA.Range("K2").Resize(lastRow - 1).Value
+        wsCONC.Range("D2").Resize(lastRow - 1).Value = wsDATA.Range("J2").Resize(lastRow - 1).Value
+        wsCONC.Range("E2").Resize(lastRow - 1).Value = wsDATA.Range("N2").Resize(lastRow - 1).Value
+        wsCONC.Range("F2").Resize(lastRow - 1).Value = wsDATA.Range("M2").Resize(lastRow - 1).Value
+        wsCONC.Range("G2").Resize(lastRow - 1).Value = wsDATA.Range("E2").Resize(lastRow - 1).Value
+        wsCONC.Range("H2").Resize(lastRow - 1).Value = wsDATA.Range("O2").Resize(lastRow - 1).Value
+    End If
+    
+    MsgBox "Import complete. 'Canceled' removed, SWAP rows split, and data mapped into CONCILIACIÓN.", vbInformation
+    
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
