@@ -1,0 +1,206 @@
+Option Explicit
+
+Sub Import_Generic_CleanOpenPaste_KeepToday_AndSplitSwap()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim i As Long, s As String, p As Long
+    Dim d As Variant, todayDate As Date
+    Dim initLast As Long, newRow As Long
+    Dim shellObj As Object, saveRoot As String, savePath As String
+    Dim fileName As String, fullSave As String
+    Dim wbNew As Workbook
+
+    ' Sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Pick file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open & paste first sheet → DATA!A1
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the selected Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "The first sheet appears to be empty (no data found).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 4) G: keep only date (remove time) and convert
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+    For i = 2 To lastRow
+        s = Trim$(CStr(wsDATA.Cells(i, "G").Value))
+        If Len(s) > 0 Then
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)
+            On Error Resume Next
+            d = CDate(s)
+            On Error GoTo 0
+            If IsDate(d) Then
+                wsDATA.Cells(i, "G").Value = DateValue(d)
+            Else
+                wsDATA.Cells(i, "G").ClearContents
+            End If
+        End If
+    Next i
+    wsDATA.Range("G2:G" & lastRow).NumberFormat = "yyyy-mm-dd"
+
+    ' 5) Keep ONLY today's date in G
+    todayDate = Date
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+    For i = lastRow To 2 Step -1
+        If Not IsDate(wsDATA.Cells(i, "G").Value) Then
+            wsDATA.Rows(i).Delete
+        ElseIf DateValue(wsDATA.Cells(i, "G").Value) <> todayDate Then
+            wsDATA.Rows(i).Delete
+        End If
+    Next i
+
+    ' 6) For each "SWAP" in V, append a new row copying:
+    ' A→A, B→B (opposite action), C→C, N→D, O→E, Q→F, G→G, M→H
+    initLast = LastRowReliable(wsDATA)
+    Dim bRaw As String, bNorm As String, bOpp As String
+    For i = 2 To initLast
+        If UCase$(Trim$(CStr(wsDATA.Cells(i, "V").Value))) = "SWAP" Then
+            newRow = LastRowReliable(wsDATA) + 1
+
+            ' Copy values
+            wsDATA.Cells(newRow, "A").Value = wsDATA.Cells(i, "A").Value
+            wsDATA.Cells(newRow, "C").Value = wsDATA.Cells(i, "C").Value
+            wsDATA.Cells(newRow, "D").Value = wsDATA.Cells(i, "N").Value
+            wsDATA.Cells(newRow, "E").Value = wsDATA.Cells(i, "O").Value
+            wsDATA.Cells(newRow, "F").Value = wsDATA.Cells(i, "Q").Value
+            wsDATA.Cells(newRow, "G").Value = wsDATA.Cells(i, "G").Value
+            wsDATA.Cells(newRow, "H").Value = wsDATA.Cells(i, "M").Value
+
+            ' B: opposite of original (handles EN/ES, case/accents)
+            bRaw = UCase$(Trim$(CStr(wsDATA.Cells(i, "B").Value)))
+            If bRaw = "COMPRÓ" Or bRaw = "COMPRO" Then
+                bNorm = "BUY"
+            ElseIf bRaw = "VENDIÓ" Or bRaw = "VENDIO" Then
+                bNorm = "SELL"
+            Else
+                bNorm = bRaw
+            End If
+            If bNorm = "BUY" Then
+                bOpp = "SELL"
+            ElseIf bNorm = "SELL" Then
+                bOpp = "BUY"
+            Else
+                bOpp = wsDATA.Cells(i, "B").Value
+            End If
+            wsDATA.Cells(newRow, "B").Value = bOpp
+        End If
+    Next i
+
+    ' 7) Normalize B in all rows: "Compró"→"BUY", "Vendió"→"SELL"
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "B").End(xlUp).Row
+    For i = 2 To lastRow
+        s = UCase$(Trim$(CStr(wsDATA.Cells(i, "B").Value)))
+        Select Case s
+            Case "COMPRÓ", "COMPRO"
+                wsDATA.Cells(i, "B").Value = "BUY"
+            Case "VENDIÓ", "VENDIO"
+                wsDATA.Cells(i, "B").Value = "SELL"
+        End Select
+    Next i
+
+    ' 8) Copy A:H from DATA → CONCILIACIÓN
+    wsCONC.Cells.Clear
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow >= 1 Then
+        wsDATA.Range("A1:H" & lastRow).Copy
+        wsCONC.Range("A1").PasteSpecial xlPasteAll
+        Application.CutCopyMode = False
+    End If
+
+    ' 9) Save a copy in Documents\VARIOS\INTERMEDIARIOS as BBVA_yyyymmdd.xlsx (Hoja1)
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "The folder does not exist: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "BBVA_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs Filename:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Done: imported, processed, copied to CONCILIACIÓN and saved as:" & vbCrLf & fullSave, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+' Reliable "last used row" (ignores filters; sheet-wide)
+Private Function LastRowReliable(ws As Worksheet) As Long
+    Dim lastCell As Range
+    Set lastCell = ws.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If lastCell Is Nothing Then
+        LastRowReliable = 1
+    Else
+        LastRowReliable = lastCell.Row
+    End If
+End Function
