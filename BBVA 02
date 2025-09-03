@@ -1,0 +1,77 @@
+Option Explicit
+
+Sub Import_Generic_CleanOpenPaste()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+
+    ' Get target sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clean sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for an Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open and paste first sheet's used range to DATA!A1
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "Couldn't open the selected Excel file.", vbCritical
+        GoTo TidyExit
+    End If
+
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+
+    ' Robust used-range detection (ignores filters)
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+
+    wbSrc.Close SaveChanges:=False
+
+    If gotData Then
+        MsgBox "Import complete. Data pasted into sheet DATA.", vbInformation
+    Else
+        MsgBox "The first sheet appears to be empty (no data found).", vbExclamation
+    End If
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
