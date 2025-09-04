@@ -1,0 +1,132 @@
+Option Explicit
+
+Public Sub Import_CleanCopyPaste_CADSwap_Filtered()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim i As Long
+
+    Dim r As Range, rr As Long
+    Dim b As String, tmp As Variant
+    Dim changed As Long
+
+    ' Obtener hojas
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Limpiar hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Pedir archivo de Excel
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo de Excel"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abrir y pegar primera hoja en DATA!A1
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "No se pudo abrir el archivo seleccionado.", vbCritical
+        GoTo TidyExit
+    End If
+
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+
+    ' Detección robusta del rango usado (ignora filtros)
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "La primera hoja parece vacía (no se encontraron datos).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 4) PROCESAR CAD con AutoFilter en columna C:
+    '    - limpiar C (NBSP -> espacio, TRIM, UPPER)
+    '    - filtrar C = CAD
+    '    - para filas visibles: swap D<->E y flip B<->S
+    With wsDATA
+        ' Última fila basada en C (columna ancla para este proceso)
+        lastRow = .Cells(.Rows.Count, "C").End(xlUp).Row
+        If lastRow < 2 Then GoTo SkipCAD
+
+        ' 4.1) Pre-limpieza de C (NBSP -> espacio) + TRIM + UCASE
+        .Range("C2:C" & lastRow).Replace What:=Chr(160), Replacement:=" ", _
+            LookAt:=xlPart, SearchOrder:=xlByRows, MatchCase:=False
+        For i = 2 To lastRow
+            If Not IsEmpty(.Cells(i, "C").Value) Then
+                .Cells(i, "C").Value = UCase$(WorksheetFunction.Trim(CStr(.Cells(i, "C").Value)))
+            End If
+        Next i
+
+        ' 4.2) Filtrar por CAD
+        If .AutoFilterMode Then .AutoFilterMode = False
+        .Range("A1").CurrentRegion.AutoFilter Field:=3, Criteria1:="=CAD"
+
+        changed = 0
+        On Error Resume Next
+        For Each r In .Range("A2:A" & lastRow).SpecialCells(xlCellTypeVisible).Cells
+            rr = r.Row
+
+            ' swap D <-> E
+            tmp = .Cells(rr, "D").Value
+            .Cells(rr, "D").Value = .Cells(rr, "E").Value
+            .Cells(rr, "E").Value = tmp
+
+            ' flip B <-> S (solo si es exactamente B o S; ignorar espacios y mayúsculas)
+            b = UCase$(WorksheetFunction.Trim(CStr(.Cells(rr, "B").Value)))
+            If b = "B" Then
+                .Cells(rr, "B").Value = "S"
+            ElseIf b = "S" Then
+                .Cells(rr, "B").Value = "B"
+            End If
+
+            changed = changed + 1
+        Next r
+        On Error GoTo 0
+
+        ' 4.3) Quitar filtro
+        If .AutoFilterMode Then .AutoFilterMode = False
+    End With
+
+SkipCAD:
+    MsgBox "Listo: datos importados. Filas CAD procesadas (swap D/E + flip B/S): " & changed, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
