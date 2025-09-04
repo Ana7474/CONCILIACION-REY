@@ -1,0 +1,147 @@
+Option Explicit
+
+'========================
+' 1) DIAGNOSTIC REPORT
+'========================
+Public Sub DiagnoseCAD()
+    Dim wsDATA As Worksheet, wsDiag As Worksheet
+    Dim lastRow As Long, r As Long, i As Long
+    Dim rawC As String, normC As String
+    Dim codes As String
+    Dim matched As String
+    
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    On Error GoTo 0
+    If wsDATA Is Nothing Then
+        MsgBox "Sheet 'DATA' not found.", vbCritical
+        Exit Sub
+    End If
+    
+    ' Create/Reset diagnostic sheet
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    ThisWorkbook.Sheets("CAD_DIAG").Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+    
+    Set wsDiag = ThisWorkbook.Worksheets.Add(After:=wsDATA)
+    wsDiag.Name = "CAD_DIAG"
+    
+    ' Headers
+    wsDiag.Range("A1:H1").Value = Array("Row", "C (raw)", "Len(raw)", "CharCodes(raw)", "C (normalized)", "Match exact 'CAD'?", "Contains 'CAD'?", "B (raw)")
+    wsDiag.Rows(1).Font.Bold = True
+    
+    lastRow = LastRowReliable(wsDATA)
+    If lastRow < 2 Then
+        MsgBox "DATA appears empty after headers.", vbExclamation
+        Exit Sub
+    End If
+    
+    For r = 2 To lastRow
+        rawC = CStr(wsDATA.Cells(r, "C").Value)
+        normC = NormalizeText(rawC)
+        codes = CharCodes(rawC)
+        
+        ' two types of matches
+        If normC = "CAD" Then
+            matched = "YES"
+        Else
+            matched = "NO"
+        End If
+        
+        wsDiag.Cells(r, "A").Value = r
+        wsDiag.Cells(r, "B").Value = rawC
+        wsDiag.Cells(r, "C").Value = Len(rawC)
+        wsDiag.Cells(r, "D").Value = codes
+        wsDiag.Cells(r, "E").Value = normC
+        wsDiag.Cells(r, "F").Value = IIf(matched = "YES", "YES", "NO")
+        wsDiag.Cells(r, "G").Value = IIf(InStr(1, normC, "CAD", vbTextCompare) > 0, "YES", "NO")
+        wsDiag.Cells(r, "H").Value = CStr(wsDATA.Cells(r, "B").Value)
+    Next r
+    
+    wsDiag.Columns.AutoFit
+    MsgBox "Diagnostic complete. See sheet 'CAD_DIAG'.", vbInformation
+End Sub
+
+'========================
+' 2) SIMPLE SWAP TEST
+'========================
+Public Sub SwapCAD_Simple()
+    Dim wsDATA As Worksheet
+    Dim lastRow As Long, r As Long
+    Dim normC As String, bVal As String
+    Dim tmpVal As Variant
+    Dim changed As Long
+    
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    On Error GoTo 0
+    If wsDATA Is Nothing Then
+        MsgBox "Sheet 'DATA' not found.", vbCritical
+        Exit Sub
+    End If
+    
+    lastRow = LastRowReliable(wsDATA)
+    If lastRow < 2 Then
+        MsgBox "No data after headers.", vbExclamation
+        Exit Sub
+    End If
+    
+    changed = 0
+    For r = 2 To lastRow
+        normC = NormalizeText(CStr(wsDATA.Cells(r, "C").Value))
+        If normC = "CAD" Then
+            ' swap D <-> E
+            tmpVal = wsDATA.Cells(r, "D").Value
+            wsDATA.Cells(r, "D").Value = wsDATA.Cells(r, "E").Value
+            wsDATA.Cells(r, "E").Value = tmpVal
+            
+            ' flip B <-> S
+            bVal = UCase$(Trim$(CStr(wsDATA.Cells(r, "B").Value)))
+            If bVal = "B" Then
+                wsDATA.Cells(r, "B").Value = "S"
+            ElseIf bVal = "S" Then
+                wsDATA.Cells(r, "B").Value = "B"
+            End If
+            
+            wsDATA.Rows(r).Interior.Color = RGB(255, 255, 153) ' highlight changed row
+            changed = changed + 1
+        End If
+    Next r
+    
+    MsgBox "SwapCAD_Simple: " & changed & " row(s) changed.", vbInformation
+End Sub
+
+'========================
+' Helpers
+'========================
+Private Function NormalizeText(ByVal s As String) As String
+    ' Remove various non-visible chars and quotes; collapse to uppercase trimmed
+    s = Replace$(s, Chr$(160), " ")          ' NBSP
+    s = Replace$(s, ChrW$(&H202F), " ")      ' NARROW NBSP
+    s = Replace$(s, vbTab, " ")
+    s = Replace$(s, vbCr, " ")
+    s = Replace$(s, vbLf, " ")
+    s = Trim$(s)
+    NormalizeText = UCase$(s)
+End Function
+
+Private Function CharCodes(ByVal s As String) As String
+    Dim i As Long, out As String
+    For i = 1 To Len(s)
+        out = out & AscW(Mid$(s, i, 1)) & IIf(i < Len(s), ",", "")
+    Next i
+    CharCodes = out
+End Function
+
+Private Function LastRowReliable(ws As Worksheet) As Long
+    Dim lastCell As Range
+    Set lastCell = ws.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If lastCell Is Nothing Then
+        LastRowReliable = 1
+    Else
+        LastRowReliable = lastCell.Row
+    End If
+End Function
