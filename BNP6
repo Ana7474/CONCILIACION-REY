@@ -1,0 +1,129 @@
+Option Explicit
+
+Public Sub Import_CSV_Clean_CADSwap_Dates_FilterToday()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim i As Long
+    Dim r As Range, rr As Long
+    Dim b As String, tmp As Variant
+    Dim changed As Long
+    Dim s As String, p As Long, d As Variant
+    Dim todayDate As Date
+    Dim rng As Range, visCount As Long
+
+    ' Get target sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clear sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for CSV file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open CSV and copy to DATA
+    Set wbCSV = Workbooks.Open(Filename:=filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' 4) Process CAD with AutoFilter (column C)
+    With wsDATA
+        lastRow = .Cells(.Rows.Count, "C").End(xlUp).Row
+        If lastRow >= 2 Then
+            .Range("C2:C" & lastRow).Replace What:=Chr(160), Replacement:=" ", _
+                LookAt:=xlPart, SearchOrder:=xlByRows, MatchCase:=False
+            For i = 2 To lastRow
+                If Not IsEmpty(.Cells(i, "C").Value) Then
+                    .Cells(i, "C").Value = UCase$(WorksheetFunction.Trim(CStr(.Cells(i, "C").Value)))
+                End If
+            Next i
+
+            If .AutoFilterMode Then .AutoFilterMode = False
+            .Range("A1").CurrentRegion.AutoFilter Field:=3, Criteria1:="=CAD"
+
+            changed = 0
+            On Error Resume Next
+            For Each r In .Range("A2:A" & lastRow).SpecialCells(xlCellTypeVisible).Cells
+                rr = r.Row
+                ' Swap D <-> E
+                tmp = .Cells(rr, "D").Value
+                .Cells(rr, "D").Value = .Cells(rr, "E").Value
+                .Cells(rr, "E").Value = tmp
+                ' Flip B <-> S
+                b = UCase$(WorksheetFunction.Trim(CStr(.Cells(rr, "B").Value)))
+                If b = "B" Then
+                    .Cells(rr, "B").Value = "S"
+                ElseIf b = "S" Then
+                    .Cells(rr, "B").Value = "B"
+                End If
+                changed = changed + 1
+            Next r
+            On Error GoTo 0
+
+            If .AutoFilterMode Then .AutoFilterMode = False
+        End If
+    End With
+
+    ' 5) Clean dates in column G (remove time, convert to date, format dd/mm/yy)
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+    For i = 2 To lastRow
+        s = Trim$(CStr(wsDATA.Cells(i, "G").Value))
+        If Len(s) > 0 Then
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)
+            On Error Resume Next
+            d = CDate(s)
+            On Error GoTo 0
+            If IsDate(d) Then wsDATA.Cells(i, "G").Value = DateValue(d)
+        End If
+    Next i
+    If lastRow >= 2 Then wsDATA.Range("G2:G" & lastRow).NumberFormat = "dd/mm/yy"
+
+    ' 6) SHOW ONLY today's date in G (filter, do not delete)
+    todayDate = Date
+    Set rng = wsDATA.Range("A1").CurrentRegion
+    If wsDATA.AutoFilterMode Then wsDATA.AutoFilterMode = False
+    rng.AutoFilter Field:=7, Criteria1:=">=" & CDbl(todayDate), Operator:=xlAnd, Criteria2:="<" & CDbl(todayDate + 1)
+
+    ' Quick info: how many visible data rows?
+    On Error Resume Next
+    visCount = rng.Offset(1, 0).Resize(rng.Rows.Count - 1).SpecialCells(xlCellTypeVisible).Rows.Count
+    On Error GoTo 0
+
+    MsgBox "Import completed." & vbCrLf & _
+           "CAD rows processed: " & changed & vbCrLf & _
+           "Rows visible for today's date in G: " & visCount, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
