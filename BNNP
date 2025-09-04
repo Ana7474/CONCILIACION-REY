@@ -1,0 +1,235 @@
+Option Explicit
+
+Public Sub Import_CSV_Clean_CADSwap_Dates_KeepToday_Strict()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim i As Long
+    Dim r As Range, rr As Long
+    Dim b As String, tmp As Variant
+    Dim changed As Long
+    Dim s As String, todayDate As Date
+    Dim kept As Long
+
+    ' Target sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Clear sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for CSV file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open CSV and copy to DATA
+    Set wbCSV = Workbooks.Open(Filename:=filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' 4) CAD via AutoFilter (Column C): D<->E and B<->S
+    With wsDATA
+        lastRow = .Cells(.Rows.Count, "C").End(xlUp).Row
+        If lastRow >= 2 Then
+            ' Pre-clean C (NBSP -> space) + TRIM + UCASE
+            .Range("C2:C" & lastRow).Replace What:=Chr(160), Replacement:=" ", _
+                LookAt:=xlPart, SearchOrder:=xlByRows, MatchCase:=False
+            For i = 2 To lastRow
+                If Not IsEmpty(.Cells(i, "C").Value) Then
+                    .Cells(i, "C").Value = UCase$(WorksheetFunction.Trim(CStr(.Cells(i, "C").Value)))
+                End If
+            Next i
+
+            If .AutoFilterMode Then .AutoFilterMode = False
+            .Range("A1").CurrentRegion.AutoFilter Field:=3, Criteria1:="=CAD"
+
+            changed = 0
+            On Error Resume Next
+            For Each r In .Range("A2:A" & lastRow).SpecialCells(xlCellTypeVisible).Cells
+                rr = r.Row
+                ' Swap D <-> E
+                tmp = .Cells(rr, "D").Value
+                .Cells(rr, "D").Value = .Cells(rr, "E").Value
+                .Cells(rr, "E").Value = tmp
+                ' Flip B <-> S
+                b = UCase$(WorksheetFunction.Trim(CStr(.Cells(rr, "B").Value)))
+                If b = "B" Then
+                    .Cells(rr, "B").Value = "S"
+                ElseIf b = "S" Then
+                    .Cells(rr, "B").Value = "B"
+                End If
+                changed = changed + 1
+            Next r
+            On Error GoTo 0
+
+            If .AutoFilterMode Then .AutoFilterMode = False
+        End If
+    End With
+
+    ' 5) Clean & convert column G to real dates (strip time; parse robustly)
+    lastRow = LastRowReliable(wsDATA)
+    For i = 2 To lastRow
+        s = CStr(wsDATA.Cells(i, "G").Value)
+        wsDATA.Cells(i, "G").Value = ParseDateSmart(TrimDateOnly(s)) ' set to Date or leave as text if unparsable
+    Next i
+    lastRow = LastRowReliable(wsDATA)
+    If lastRow >= 2 Then wsDATA.Range("G2:G" & lastRow).NumberFormat = "dd/mm/yy"
+
+    ' 6) Keep ONLY today's date in G (delete others, after conversion)
+    todayDate = Date
+    kept = 0
+    For i = LastRowReliable(wsDATA) To 2 Step -1
+        If IsDate(wsDATA.Cells(i, "G").Value) Then
+            If DateValue(wsDATA.Cells(i, "G").Value) = todayDate Then
+                kept = kept + 1
+            Else
+                wsDATA.Rows(i).Delete
+            End If
+        Else
+            wsDATA.Rows(i).Delete
+        End If
+    Next i
+
+    MsgBox "Done." & vbCrLf & _
+           "CAD rows processed (swap D/E + flip B/S): " & changed & vbCrLf & _
+           "Rows kept for today's date in G: " & kept, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+' ========= Helpers =========
+
+' Return only the date token (before space or 'T'), e.g. "26/08/2025 04:18:45 m. m." -> "26/08/2025"
+Private Function TrimDateOnly(ByVal s As String) As String
+    s = Replace$(s, Chr$(160), " ")           ' NBSP -> space
+    s = Replace$(s, ChrW$(&H202F), " ")       ' narrow NBSP -> space
+    s = Trim$(s)
+    Dim p As Long
+    p = InStr(s, " ")
+    If p = 0 Then p = InStr(s, "T")          ' ISO "yyyy-mm-ddT..."
+    If p > 0 Then s = Left$(s, p - 1)
+    TrimDateOnly = s
+End Function
+
+' Parse multiple common formats reliably and return a Date or Empty if invalid
+Private Function ParseDateSmart(ByVal s As String) As Variant
+    Dim d As Variant, parts() As String
+    Dim dd As Long, mm As Long, yy As Long
+    Dim mStr As String
+
+    If Len(s) = 0 Then
+        ParseDateSmart = Empty
+        Exit Function
+    End If
+
+    ' yyyy-mm-dd
+    If s Like "####-##-##" Then
+        On Error Resume Next
+        yy = CLng(Left$(s, 4))
+        mm = CLng(Mid$(s, 6, 2))
+        dd = CLng(Right$(s, 2))
+        d = DateSerial(yy, mm, dd)
+        On Error GoTo 0
+        If IsDate(d) Then ParseDateSmart = d: Exit Function
+    End If
+
+    ' dd/mm/yy or dd/mm/yyyy
+    If InStr(s, "/") > 0 Then
+        parts = Split(s, "/")
+        If UBound(parts) = 2 Then
+            On Error Resume Next
+            dd = CLng(parts(0))
+            mm = CLng(parts(1))
+            yy = CLng(parts(2))
+            If yy < 100 Then yy = 2000 + yy ' assume 2000-2099 for 2-digit years
+            d = DateSerial(yy, mm, dd)
+            On Error GoTo 0
+            If IsDate(d) Then ParseDateSmart = d: Exit Function
+        End If
+    End If
+
+    ' dd-mmm-yy / dd-mmm-yyyy (EN or ES short months: ene,feb,mar,abr,may,jun,jul,ago,sep,oct,nov,dic)
+    If InStr(s, "-") > 0 Then
+        parts = Split(s, "-")
+        If UBound(parts) = 2 Then
+            On Error Resume Next
+            dd = CLng(parts(0))
+            mStr = LCase$(parts(1))
+            mm = MonthFromNameESEN(mStr)
+            yy = CLng(parts(2))
+            If yy < 100 Then yy = 2000 + yy
+            d = DateSerial(yy, mm, dd)
+            On Error GoTo 0
+            If IsDate(d) Then ParseDateSmart = d: Exit Function
+        End If
+    End If
+
+    ' Fallback: try CDate (locale-dependent)
+    On Error Resume Next
+    d = CDate(s)
+    On Error GoTo 0
+    If IsDate(d) Then
+        ParseDateSmart = DateValue(d)
+    Else
+        ParseDateSmart = Empty
+    End If
+End Function
+
+' Map EN/ES month abbreviations to month number
+Private Function MonthFromNameESEN(ByVal m As String) As Integer
+    Select Case Left$(m, 3)
+        Case "jan": MonthFromNameESEN = 1
+        Case "feb": MonthFromNameESEN = 2
+        Case "mar": MonthFromNameESEN = 3
+        Case "apr", "abr": MonthFromNameESEN = 4
+        Case "may": MonthFromNameESEN = 5
+        Case "jun": MonthFromNameESEN = 6
+        Case "jul": MonthFromNameESEN = 7
+        Case "aug", "ago": MonthFromNameESEN = 8
+        Case "sep": MonthFromNameESEN = 9
+        Case "oct": MonthFromNameESEN = 10
+        Case "nov": MonthFromNameESEN = 11
+        Case "dec", "dic": MonthFromNameESEN = 12
+        Case Else:  MonthFromNameESEN = 0
+    End Select
+End Function
+
+' Find last used row anywhere on the sheet
+Private Function LastRowReliable(ws As Worksheet) As Long
+    Dim lastCell As Range
+    Set lastCell = ws.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If lastCell Is Nothing Then
+        LastRowReliable = 1
+    Else
+        LastRowReliable = lastCell.Row
+    End If
+End Function
