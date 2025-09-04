@@ -1,0 +1,98 @@
+Option Explicit
+
+Public Sub Import_CleanCopyPaste_CADSwap()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim i As Long, tmpVal As Variant, bVal As String
+
+    ' Obtener hojas destino
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Limpiar hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Pedir archivo de Excel
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo de Excel"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abrir y pegar primera hoja en DATA!A1
+    Set wbSrc = Workbooks.Open(Filename:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "No se pudo abrir el archivo seleccionado.", vbCritical
+        GoTo TidyExit
+    End If
+
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+
+    ' Detección robusta del rango usado
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "La primera hoja parece vacía (no se encontraron datos).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 4) Procesar CAD: intercambiar D↔E y voltear B
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "C").End(xlUp).Row
+    For i = 2 To lastRow
+        If UCase$(Trim$(wsDATA.Cells(i, "C").Value)) = "CAD" Then
+            ' Swap D y E
+            tmpVal = wsDATA.Cells(i, "D").Value
+            wsDATA.Cells(i, "D").Value = wsDATA.Cells(i, "E").Value
+            wsDATA.Cells(i, "E").Value = tmpVal
+            
+            ' Flip B
+            bVal = UCase$(Trim$(wsDATA.Cells(i, "B").Value))
+            If bVal = "B" Then
+                wsDATA.Cells(i, "B").Value = "S"
+            ElseIf bVal = "S" Then
+                wsDATA.Cells(i, "B").Value = "B"
+            End If
+        End If
+    Next i
+
+    MsgBox "Listo: datos importados y procesados (CAD → swapped D/E y flipped B).", vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
