@@ -1,0 +1,37 @@
+    ' 7) BUY / SELL
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "B").End(xlUp).Row
+    For i = 2 To lastRow
+        s = UCase$(Trim$(CStr(wsDATA.Cells(i, "B").Value)))
+        Select Case s
+            Case "COMPRÓ", "COMPRO"
+                wsDATA.Cells(i, "B").Value = "BUY"
+            Case "VENDIÓ", "VENDIO"
+                wsDATA.Cells(i, "B").Value = "SELL"
+        End Select
+    Next i
+
+-------------------------------------------------------------
+                
+              ' Cambia el sentido de la operación
+            bRaw = UCase$(Trim$(CStr(wsDATA.Cells(i, "B").Value)))
+            ' Pone "BUY" / "SELL"
+            If bRaw = "COMPRÓ" Or bRaw = "COMPRO" Then
+                bNorm = "BUY"
+            ElseIf bRaw = "VENDIÓ" Or bRaw = "VENDIO" Then
+                bNorm = "SELL"
+            Else
+                bNorm = bRaw
+            End If
+
+            If bNorm = "BUY" Then
+                bOpp = "SELL"
+            ElseIf bNorm = "SELL" Then
+                bOpp = "BUY"
+            Else
+                ' En caso de no detectar Compró o Vendió, copia lo que haya
+                bOpp = wsDATA.Cells(i, "B").Value
+            End If
+
+            wsDATA.Cells(newRow, "B").Value = bOpp
+        End If
+    Next i
