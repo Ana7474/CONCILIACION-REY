@@ -1,0 +1,6 @@
+    ' 10) Formato con comas en D y E
+    lastRow = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    If lastRow >= 2 Then
+        wsCONC.Range("D2:D" & lastRow).NumberFormat = "#,##0"
+        wsCONC.Range("E2:E" & lastRow).NumberFormat = "#,##0"
+    End If
