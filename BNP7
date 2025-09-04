@@ -1,0 +1,140 @@
+Option Explicit
+
+Public Sub Import_CSV_Clean_CADSwap_Dates_KeepToday_DeleteOthers()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim i As Long
+    Dim r As Range, rr As Long
+    Dim b As String, tmp As Variant
+    Dim changed As Long
+    Dim s As String, p As Long, d As Variant
+    Dim todayDate As Date
+    Dim deleted As Long, kept As Long
+
+    ' Hojas
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "Required sheets not found (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Limpiar
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Pedir CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abrir CSV y copiar a DATA
+    Set wbCSV = Workbooks.Open(Filename:=filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' 4) CAD con AutoFilter: D<->E y B<->S
+    With wsDATA
+        lastRow = .Cells(.Rows.Count, "C").End(xlUp).Row
+        If lastRow >= 2 Then
+            ' Prelimpia C (NBSP -> espacio) + TRIM + UCASE
+            .Range("C2:C" & lastRow).Replace What:=Chr(160), Replacement:=" ", _
+                LookAt:=xlPart, SearchOrder:=xlByRows, MatchCase:=False
+            For i = 2 To lastRow
+                If Not IsEmpty(.Cells(i, "C").Value) Then
+                    .Cells(i, "C").Value = UCase$(WorksheetFunction.Trim(CStr(.Cells(i, "C").Value)))
+                End If
+            Next i
+
+            ' Filtrar por CAD
+            If .AutoFilterMode Then .AutoFilterMode = False
+            .Range("A1").CurrentRegion.AutoFilter Field:=3, Criteria1:="=CAD"
+
+            changed = 0
+            On Error Resume Next
+            For Each r In .Range("A2:A" & lastRow).SpecialCells(xlCellTypeVisible).Cells
+                rr = r.Row
+                ' Swap D <-> E
+                tmp = .Cells(rr, "D").Value
+                .Cells(rr, "D").Value = .Cells(rr, "E").Value
+                .Cells(rr, "E").Value = tmp
+                ' Flip B <-> S
+                b = UCase$(WorksheetFunction.Trim(CStr(.Cells(rr, "B").Value)))
+                If b = "B" Then
+                    .Cells(rr, "B").Value = "S"
+                ElseIf b = "S" Then
+                    .Cells(rr, "B").Value = "B"
+                End If
+                changed = changed + 1
+            Next r
+            On Error GoTo 0
+
+            ' Quitar filtro
+            If .AutoFilterMode Then .AutoFilterMode = False
+        End If
+    End With
+
+    ' 5) Columna G: dejar solo fecha (quitar hora) y convertir a valor de fecha
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+    For i = 2 To lastRow
+        s = Trim$(CStr(wsDATA.Cells(i, "G").Value))
+        If Len(s) > 0 Then
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)   ' todo antes del primer espacio
+            On Error Resume Next
+            d = CDate(s)                        ' intenta convertir
+            On Error GoTo 0
+            If IsDate(d) Then
+                wsDATA.Cells(i, "G").Value = DateValue(d)
+            Else
+                ' si no se puede convertir, lo dejamos tal cual (se eliminará en el siguiente paso)
+            End If
+        End If
+    Next i
+    If lastRow >= 2 Then wsDATA.Range("G2:G" & lastRow).NumberFormat = "dd/mm/yy"
+
+    ' 6) ELIMINAR todo lo que NO sea la fecha de HOY en G (mantener solo HOY)
+    todayDate = Date
+    deleted = 0
+    For i = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row To 2 Step -1
+        If Not IsDate(wsDATA.Cells(i, "G").Value) Then
+            wsDATA.Rows(i).Delete
+            deleted = deleted + 1
+        ElseIf DateValue(wsDATA.Cells(i, "G").Value) <> todayDate Then
+            wsDATA.Rows(i).Delete
+            deleted = deleted + 1
+        End If
+    Next i
+
+    kept = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row - 1 ' sin encabezado
+
+    MsgBox "Listo:" & vbCrLf & _
+           "Filas CAD procesadas (swap D/E + flip B/S): " & changed & vbCrLf & _
+           "Filas eliminadas por fecha != HOY (G): " & deleted & vbCrLf & _
+           "Filas restantes (HOY): " & kept, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
