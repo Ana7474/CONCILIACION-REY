@@ -1,0 +1,191 @@
+Option Explicit
+
+Sub DEUTSCHE()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim r As Long
+    Dim valA As String, norm As String
+    Dim initLast As Long, newRow As Long
+    Dim lastRowK As Long, lastRowCONC As Long
+    Dim shellObj As Object, saveRoot As String, savePath As String
+    Dim fileName As String, fullSave As String
+    Dim wbNew As Workbook
+    
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    
+    ' 1) Clean DATA and CONCILIACIÓN
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+    
+    ' 2) Ask for an Excel file
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+    
+    ' 3) Open source workbook
+    Set wbSrc = Workbooks.Open(fileName:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "No fue posible abrir el Excel", vbCritical
+        GoTo TidyExit
+    End If
+    
+    ' 4) Copy FIRST sheet's used range -> DATA!A1
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+    
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+    
+    wbSrc.Close SaveChanges:=False
+    
+    If Not gotData Then
+        MsgBox "No se encontró datos", vbExclamation
+        GoTo TidyExit
+    End If
+    
+    ' 5) Delete rows in DATA where col A is Canceled/Cancelled
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For r = lastRow To 2 Step -1
+        valA = CStr(wsDATA.Cells(r, "A").Value)
+        norm = UCase$(Trim$(valA))
+        norm = Replace(norm, "CANCELLED", "CANCELED")
+        If norm = "CANCELED" Then wsDATA.Rows(r).Delete
+    Next r
+    
+    ' 6) Handle SWAP rows in column H (loop ONLY original rows)
+    initLast = wsDATA.Cells(wsDATA.Rows.Count, "H").End(xlUp).Row
+    If initLast >= 2 Then
+        For r = 2 To initLast
+            If UCase$(Trim$(CStr(wsDATA.Cells(r, "H").Value))) = "SWAP" Then
+                newRow = wsDATA.Cells(wsDATA.Rows.Count, "K").End(xlUp).Row + 1
+                wsDATA.Cells(newRow, "E").Value = wsDATA.Cells(r, "E").Value
+                If Val(wsDATA.Cells(r, "J").Value) < 0 Then
+                    wsDATA.Cells(r, "G").Value = "Sell"
+                ElseIf Val(wsDATA.Cells(r, "J").Value) > 0 Then
+                    wsDATA.Cells(r, "G").Value = "Buy"
+                End If
+                If Val(wsDATA.Cells(r, "V").Value) < 0 Then
+                    wsDATA.Cells(newRow, "G").Value = "Sell"
+                ElseIf Val(wsDATA.Cells(r, "V").Value) > 0 Then
+                    wsDATA.Cells(newRow, "G").Value = "Buy"
+                End If
+                wsDATA.Cells(newRow, "I").Value = wsDATA.Cells(r, "I").Value
+                wsDATA.Cells(newRow, "J").Value = wsDATA.Cells(r, "V").Value
+                wsDATA.Cells(newRow, "K").Value = wsDATA.Cells(r, "K").Value
+                wsDATA.Cells(newRow, "N").Value = wsDATA.Cells(r, "W").Value
+                wsDATA.Cells(newRow, "O").Value = wsDATA.Cells(r, "O").Value
+            End If
+        Next r
+    End If
+    
+    ' 7) Map to CONCILIACIÓN, using last row anchored on DATA column K
+    lastRowK = wsDATA.Cells(wsDATA.Rows.Count, "K").End(xlUp).Row
+    If lastRowK >= 2 Then
+        wsCONC.Range("A1").Value = wsDATA.Range("I1").Value
+        wsCONC.Range("B1").Value = wsDATA.Range("G1").Value
+        wsCONC.Range("C1").Value = wsDATA.Range("K1").Value
+        wsCONC.Range("D1").Value = wsDATA.Range("J1").Value
+        wsCONC.Range("E1").Value = wsDATA.Range("N1").Value
+        wsCONC.Range("F1").Value = wsDATA.Range("M1").Value
+        wsCONC.Range("G1").Value = wsDATA.Range("E1").Value
+        wsCONC.Range("H1").Value = wsDATA.Range("O1").Value
+        
+        wsCONC.Range("A2").Resize(lastRowK - 1).Value = wsDATA.Range("I2").Resize(lastRowK - 1).Value
+        wsCONC.Range("B2").Resize(lastRowK - 1).Value = wsDATA.Range("G2").Resize(lastRowK - 1).Value
+        wsCONC.Range("C2").Resize(lastRowK - 1).Value = wsDATA.Range("K2").Resize(lastRowK - 1).Value
+        wsCONC.Range("D2").Resize(lastRowK - 1).Value = wsDATA.Range("J2").Resize(lastRowK - 1).Value
+        wsCONC.Range("E2").Resize(lastRowK - 1).Value = wsDATA.Range("N2").Resize(lastRowK - 1).Value
+        wsCONC.Range("F2").Resize(lastRowK - 1).Value = wsDATA.Range("M2").Resize(lastRowK - 1).Value
+        wsCONC.Range("G2").Resize(lastRowK - 1).Value = wsDATA.Range("E2").Resize(lastRowK - 1).Value
+        wsCONC.Range("H2").Resize(lastRowK - 1).Value = wsDATA.Range("O2").Resize(lastRowK - 1).Value
+    End If
+    
+    ' 8) Make columns D and E absolute (no negatives)
+    lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    For r = 2 To lastRowCONC
+        If IsNumeric(wsCONC.Cells(r, "D").Value) Then
+            wsCONC.Cells(r, "D").Value = Abs(wsCONC.Cells(r, "D").Value)
+        End If
+        If IsNumeric(wsCONC.Cells(r, "E").Value) Then
+            wsCONC.Cells(r, "E").Value = Abs(wsCONC.Cells(r, "E").Value)
+        End If
+    Next r
+    
+    ' 9) Fill F (only blanks) as E / D
+    If lastRowK >= 2 Then
+        For r = 2 To lastRowK
+            If Trim(CStr(wsCONC.Cells(r, "F").Value)) = "" Then
+                If IsNumeric(wsCONC.Cells(r, "E").Value) And IsNumeric(wsCONC.Cells(r, "D").Value) Then
+                    If wsCONC.Cells(r, "D").Value <> 0 Then
+                        wsCONC.Cells(r, "F").Value = wsCONC.Cells(r, "E").Value / wsCONC.Cells(r, "D").Value
+                    End If
+                End If
+            End If
+        Next r
+    End If
+    
+    ' 10) Save CONCILIACIÓN as a new workbook in INTERMEDIARIOS
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+    
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+    
+    fileName = "DEUTSCHE BANK AG_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+    
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+    
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+    
+    MsgBox "Proceso terminado. Archivo guardado en: " & vbCrLf & fullSave, vbInformation
+    
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
