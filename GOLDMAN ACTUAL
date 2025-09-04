@@ -1,0 +1,221 @@
+Option Explicit
+
+Public Sub GOLDMAN()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet, wsGold As Worksheet
+    Dim lastRowD As Long, i As Long
+    Dim valD As String, valK As String
+    Dim rawA As String, rawL As String, dVal As Variant
+    Dim wbNew As Workbook
+    Dim shellObj As Object, saveRoot As String, savePath As String, fileName As String, fullSave As String
+    Dim todayDate As Date, lastRowCONC As Long
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    Set wsGold = ThisWorkbook.Sheets("GOLDMAN")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Or wsGold Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN / GOLDMAN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    todayDate = Date ' Día actual
+
+    ' 1) Limpia ambas hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Limpia en GOLDMAN
+
+    ' 2.1) Elimina "Sell / Buy", "Sell/Buy", y "COMPRA / VENTA"
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = lastRowD To 2 Step -1
+            valD = UCase$(Replace(Trim$(CStr(wsGold.Cells(i, "D").Value)), " ", ""))
+            If valD = "SELL/BUY" Or valD = "COMPRA/VENTA" Or valD = "BUY/SELL" Then
+                wsGold.Rows(i).Delete
+            End If
+        Next i
+    End If
+    
+    ' 2.2) Elimina "cardej" de columma K
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = lastRowD To 2 Step -1
+            valK = UCase$(Trim$(CStr(wsGold.Cells(i, "K").Value)))
+            If valK = "CARDEJ" Then wsGold.Rows(i).Delete
+        Next i
+    End If
+
+    ' 2.3) Elimina la hora de la fecha en la columna A
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = 2 To lastRowD
+            rawA = Trim$(CStr(wsGold.Cells(i, "A").Value))
+            If Len(rawA) > 0 Then
+                If InStr(rawA, " ") > 0 Then rawA = Mid$(rawA, InStr(rawA, " ") + 1)
+                dVal = ParseTokenToDate(rawA)
+                If IsDate(dVal) Then wsGold.Cells(i, "A").Value = dVal
+            End If
+        Next i
+        wsGold.Range("A2:A" & lastRowD).NumberFormat = "dd-mmm-yy"
+    End If
+
+    ' 2.4) Homogeneiza la fecha en L
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD >= 2 Then
+        For i = 2 To lastRowD
+            rawL = Trim$(CStr(wsGold.Cells(i, "L").Value))
+            If Len(rawL) > 0 Then
+                dVal = ParseTokenToDate(rawL)
+                If IsDate(dVal) Then wsGold.Cells(i, "L").Value = dVal
+            End If
+        Next i
+        wsGold.Range("L2:L" & lastRowD).NumberFormat = "dd-mmm-yy"
+    End If
+
+    ' 3) Pega en CONCILIACIÓN
+
+    lastRowD = wsGold.Cells(wsGold.Rows.Count, "D").End(xlUp).Row
+    If lastRowD < 1 Then GoTo TidyExit
+
+    wsGold.Range("B1:B" & lastRowD).Copy: wsCONC.Range("A1").PasteSpecial xlPasteAll  ' A <- B
+    wsGold.Range("D1:D" & lastRowD).Copy: wsCONC.Range("B1").PasteSpecial xlPasteAll  ' B <- D
+    wsGold.Range("F1:F" & lastRowD).Copy: wsCONC.Range("C1").PasteSpecial xlPasteAll  ' C <- F
+    wsGold.Range("E1:E" & lastRowD).Copy: wsCONC.Range("D1").PasteSpecial xlPasteAll  ' D <- E
+    wsGold.Range("G1:G" & lastRowD).Copy: wsCONC.Range("E1").PasteSpecial xlPasteAll  ' E <- G
+    wsGold.Range("I1:I" & lastRowD).Copy: wsCONC.Range("F1").PasteSpecial xlPasteAll  ' F <- I
+    wsGold.Range("A1:A" & lastRowD).Copy: wsCONC.Range("G1").PasteSpecial xlPasteAll  ' G <- A
+    wsGold.Range("L1:L" & lastRowD).Copy: wsCONC.Range("H1").PasteSpecial xlPasteAll  ' H <- L
+
+    ' 4) Filtra por la fecha actual
+    lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "G").End(xlUp).Row
+    If lastRowCONC >= 2 Then
+        For i = lastRowCONC To 2 Step -1
+            If IsDate(wsCONC.Cells(i, "G").Value) Then
+                If DateValue(wsCONC.Cells(i, "G").Value) <> todayDate Then
+                    wsCONC.Rows(i).Delete
+                End If
+            Else
+                wsCONC.Rows(i).Delete
+            End If
+        Next i
+    End If
+
+    ' 4) Si no queda nada no lo guarda
+    lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    If lastRowCONC < 2 Then
+        MsgBox "No hay información con la fecha actual, el archivo no se ha guardado", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 5) Guarda una copia en la ruta definida
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "GOLDMAN_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Proceso terminado. Archivo guardado en:" & vbCrLf & fullSave, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+' ===== Helpers =====
+
+Private Function MonthFromAbbrev(ByVal s As String) As Integer
+    Dim m As String
+    m = LCase$(Left$(Trim$(s), 3))
+    Select Case m
+        Case "jan": MonthFromAbbrev = 1
+        Case "feb": MonthFromAbbrev = 2
+        Case "mar": MonthFromAbbrev = 3
+        Case "apr": MonthFromAbbrev = 4
+        Case "may": MonthFromAbbrev = 5
+        Case "jun": MonthFromAbbrev = 6
+        Case "jul": MonthFromAbbrev = 7
+        Case "aug": MonthFromAbbrev = 8
+        Case "sep": MonthFromAbbrev = 9
+        Case "oct": MonthFromAbbrev = 10
+        Case "nov": MonthFromAbbrev = 11
+        Case "dec": MonthFromAbbrev = 12
+    End Select
+End Function
+
+' Arregla variantes en fechas
+Private Function ParseTokenToDate(ByVal txt As String) As Variant
+    Dim s As String, d As Integer, y As Integer, m As Integer
+    Dim parts() As String
+
+    s = Trim$(txt)
+    If s = "" Then Exit Function
+
+    ' dd-mmm-yy
+    If Len(s) >= 8 And Mid$(s, 3, 1) = "-" And Mid$(s, 7, 1) = "-" Then
+        On Error Resume Next
+        d = CInt(Left$(s, 2))
+        m = MonthFromAbbrev(Mid$(s, 4, 3))
+        y = CInt(Right$(s, 2))
+        If Err.Number = 0 And d >= 1 And d <= 31 And m >= 1 Then
+            ParseTokenToDate = DateSerial(2000 + y, m, d)
+            Exit Function
+        End If
+        Err.Clear
+        On Error GoTo 0
+    End If
+
+    ' ddMmmyy
+    If Len(s) >= 7 And IsNumeric(Left$(s, 2)) And Not IsNumeric(Mid$(s, 3, 1)) Then
+        On Error Resume Next
+        d = CInt(Left$(s, 2))
+        m = MonthFromAbbrev(Mid$(s, 3, 3))
+        y = CInt(Right$(s, 2))
+        If Err.Number = 0 And d >= 1 And d <= 31 And m >= 1 Then
+            ParseTokenToDate = DateSerial(2000 + y, m, d)
+            Exit Function
+        End If
+        Err.Clear
+        On Error GoTo 0
+    End If
+
+    ' dd mmm yy
+    If InStr(s, " ") > 0 Then
+        parts = Split(s, " ")
+        If UBound(parts) = 2 Then
+            On Error Resume Next
+            d = CInt(parts(0))
+            m = MonthFromAbbrev(parts(1))
+            y = CInt(parts(2))
+            If Err.Number = 0 And d >= 1 And d <= 31 And m >= 1 Then
+                ParseTokenToDate = DateSerial(2000 + y, m, d)
+                Exit Function
+            End If
+            Err.Clear
+            On Error GoTo 0
+        End If
+    End If
+End Function
