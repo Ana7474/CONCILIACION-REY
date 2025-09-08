@@ -1,0 +1,98 @@
+Option Explicit
+
+Public Sub LIMPIAR()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet, wsGold As Worksheet, wsBarc As Worksheet
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    Set wsGold = ThisWorkbook.Sheets("GOLDMAN")
+    Set wsBarc = ThisWorkbook.Sheets("BARCLAYS")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing And wsCONC Is Nothing And wsGold Is Nothing And wsBarc Is Nothing Then
+        MsgBox "No se encontraron las hojas: DATA, CONCILIACIÓN, GOLDMAN, BARCLAYS.", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    If Not wsDATA Is Nothing Then ClearSheetCompletely wsDATA
+    If Not wsCONC Is Nothing Then ClearSheetCompletely wsCONC
+    If Not wsGold Is Nothing Then ClearSheetCompletely wsGold
+
+    ' BARCLAYS: limpiar desde la fila 2 (conservar encabezados en la fila 1)
+    If Not wsBarc Is Nothing Then ClearSheetFromRow wsBarc, 2
+
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+
+    MsgBox "Proceso terminado!", vbInformation
+End Sub
+
+' Limpia toda la hoja (incluye encabezados)
+Private Sub ClearSheetCompletely(ByVal ws As Worksheet)
+    On Error Resume Next
+    ' Quita filtros
+    If ws.AutoFilterMode Then ws.AutoFilterMode = False
+
+    ' Muestra filas y columnas ocultas
+    ws.Cells.EntireRow.Hidden = False
+    ws.Cells.EntireColumn.Hidden = False
+
+    ' Elimina celdas unidas
+    ws.Cells.UnMerge
+
+    ' Elimina formatos condicionales
+    ws.Cells.FormatConditions.Delete
+
+    ' Borra validaciones de datos
+    ws.Cells.Validation.Delete
+
+    ' Limpia todo (valores + formatos)
+    ws.Cells.Clear
+    On Error GoTo 0
+End Sub
+
+' Limpia desde una fila específica hacia abajo (conserva encabezados)
+Private Sub ClearSheetFromRow(ByVal ws As Worksheet, ByVal startRow As Long)
+    Dim lastRow As Long, lastCol As Long
+    Dim rng As Range
+
+    On Error Resume Next
+
+    ' Quita filtros (para evitar que queden filas ocultas)
+    If ws.AutoFilterMode Then ws.AutoFilterMode = False
+
+    ' Determinar última fila y última columna usadas
+    lastRow = ws.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                            SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False).Row
+    lastCol = ws.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                            SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False).Column
+    If lastRow = 0 Or lastCol = 0 Then GoTo SafeExit ' Hoja vacía
+
+    If startRow > lastRow Then GoTo SafeExit
+
+    Set rng = ws.Range(ws.Cells(startRow, 1), ws.Cells(lastRow, lastCol))
+
+    ' Mostrar filas/columnas del rango
+    rng.EntireRow.Hidden = False
+    rng.EntireColumn.Hidden = False
+
+    ' Desunir sólo dentro del rango
+    rng.UnMerge
+
+    ' Eliminar formatos condicionales del rango
+    rng.FormatConditions.Delete
+
+    ' Eliminar validaciones en el rango
+    rng.Validation.Delete
+
+    ' Limpiar contenidos y formatos del rango (conserva encabezado arriba)
+    rng.Clear
+
+SafeExit:
+    On Error GoTo 0
+End Sub
