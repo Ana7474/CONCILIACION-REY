@@ -1,0 +1,47 @@
+' 7) Dejar sólo las filas con la fecha de HOY en columna E
+Dim todayDate As Date
+Dim keep As Boolean
+Dim parts() As String
+Dim dd As Long, mm As Long, yy As Long
+
+todayDate = Date
+lastRow = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+
+For i = lastRow To 2 Step -1
+    keep = False
+    
+    If IsDate(wsDATA.Cells(i, "E").Value) Then
+        ' Si Excel lo reconoce como fecha, comparar directo
+        If DateValue(wsDATA.Cells(i, "E").Value) = todayDate Then keep = True
+    Else
+        ' Si es texto, normalizar y parsear como dd/mm/yyyy (o yyyy/mm/dd)
+        s = CStr(wsDATA.Cells(i, "E").Value)
+        s = Replace$(s, Chr$(160), " ")            ' NBSP -> space
+        s = Replace$(s, ChrW$(&H202F), " ")        ' narrow NBSP -> space
+        s = Trim$(s)
+        p = InStr(s, " ")
+        If p > 0 Then s = Left$(s, p - 1)          ' (por si aún trae hora)
+        s = Replace$(s, ".", "/")
+        s = Replace$(s, "-", "/")
+        s = WorksheetFunction.Trim(s)
+        
+        parts = Split(s, "/")
+        If UBound(parts) = 2 Then
+            On Error Resume Next
+            If Len(parts(0)) = 4 Then
+                ' yyyy/mm/dd
+                yy = CLng(parts(0)): mm = CLng(parts(1)): dd = CLng(parts(2))
+            Else
+                ' dd/mm/yyyy
+                dd = CLng(parts(0)): mm = CLng(parts(1)): yy = CLng(parts(2))
+            End If
+            d = DateSerial(yy, mm, dd)
+            On Error GoTo 0
+            If IsDate(d) Then
+                If DateValue(d) = todayDate Then keep = True
+            End If
+        End If
+    End If
+    
+    If Not keep Then wsDATA.Rows(i).Delete
+Next i
