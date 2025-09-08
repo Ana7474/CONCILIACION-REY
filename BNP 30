@@ -1,0 +1,17 @@
+' 9) Revisar CAD en C y voltear B <-> S
+Dim lastRowCONC As Long
+Dim cur As String, valB As String
+
+lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+
+For i = 2 To lastRowCONC
+    cur = UCase$(Trim$(CStr(wsCONC.Cells(i, "C").Value)))
+    If cur = "CAD" Then
+        valB = UCase$(Trim$(CStr(wsCONC.Cells(i, "B").Value)))
+        If valB = "B" Then
+            wsCONC.Cells(i, "B").Value = "S"
+        ElseIf valB = "S" Then
+            wsCONC.Cells(i, "B").Value = "B"
+        End If
+    End If
+Next i
