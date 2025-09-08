@@ -1,0 +1,27 @@
+' 5) Limpiar fechas en columna E (quitar hora y dejar Short Date real)
+lastRow = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+For i = 2 To lastRow
+    s = Trim$(CStr(wsDATA.Cells(i, "E").Value))
+    If Len(s) > 0 Then
+        ' Cortar antes del espacio (quita hora)
+        p = InStr(s, " ")
+        If p > 0 Then s = Left$(s, p - 1)
+
+        ' Reemplazar puntos y guiones por "/"
+        s = Replace(s, ".", "/")
+        s = Replace(s, "-", "/")
+
+        On Error Resume Next
+        d = CDate(s)
+        On Error GoTo 0
+
+        If IsDate(d) Then
+            wsDATA.Cells(i, "E").Value = CDate(d)
+        Else
+            wsDATA.Cells(i, "E").ClearContents
+        End If
+    End If
+Next i
+If lastRow >= 2 Then
+    wsDATA.Range("E2:E" & lastRow).NumberFormat = "dd/mm/yyyy"
+End If
