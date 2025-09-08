@@ -1,0 +1,51 @@
+Option Explicit
+
+Public Sub LIMPIAR()
+    Dim wsDATA As Worksheet, wsCONC As Worksheet, wsGold As Worksheet
+
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    Set wsGold = ThisWorkbook.Sheets("GOLDMAN")
+    On Error GoTo 0
+
+    If wsDATA Is Nothing And wsCONC Is Nothing And wsGold Is Nothing Then
+        MsgBox "No se encontraton las hojas: DATA, CONCILIACIÓN, GOLDMAN.", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    If Not wsDATA Is Nothing Then Call ClearSheetCompletely(wsDATA)
+    If Not wsCONC Is Nothing Then Call ClearSheetCompletely(wsCONC)
+    If Not wsGold Is Nothing Then Call ClearSheetCompletely(wsGold)
+
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+
+    MsgBox "Proceso terminado!", vbInformation
+End Sub
+
+Private Sub ClearSheetCompletely(ByVal ws As Worksheet)
+    On Error Resume Next
+
+    ' Quita filtros
+    If ws.AutoFilterMode Then ws.AutoFilterMode = False
+
+    ' Muestra filas y columnas ocultas
+    ws.Cells.EntireRow.Hidden = False
+    ws.Cells.EntireColumn.Hidden = False
+
+    ' Elimina celdas unidas
+    ws.Cells.UnMerge
+
+    ' Elimina formatos condicionales
+    ws.Cells.FormatConditions.Delete
+
+    ' Limpia todo
+    ws.Cells.Clear
+
+    On Error GoTo 0
+End Sub
