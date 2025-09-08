@@ -1,0 +1,8 @@
+' 6) Copiar solo el formato de L en E
+Dim lastRowL As Long
+lastRowL = wsDATA.Cells(wsDATA.Rows.Count, "L").End(xlUp).Row
+If lastRow > 1 And lastRowL > 1 Then
+    wsDATA.Range("L2:L" & lastRowL).Copy
+    wsDATA.Range("E2:E" & lastRow).PasteSpecial Paste:=xlPasteFormats
+    Application.CutCopyMode = False
+End If
