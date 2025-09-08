@@ -1,0 +1,66 @@
+Option Explicit
+
+Sub BARCLAYS_Export()
+    Dim wsBARC As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long
+    Dim shellObj As Object, saveRoot As String, savePath As String
+    Dim fileName As String, fullSave As String
+    Dim wbNew As Workbook
+
+    On Error Resume Next
+    Set wsBARC = ThisWorkbook.Sheets("BARCLAYS")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+
+    If wsBARC Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontró la hoja 'BARCLAYS' o 'CONCILIACIÓN'.", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Calcular última fila por columna H en BARCLAYS
+    lastRow = wsBARC.Cells(wsBARC.Rows.Count, "H").End(xlUp).Row
+    If lastRow < 1 Then
+        MsgBox "La hoja BARCLAYS no tiene datos.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 2) Limpiar y copiar A1:H[lastRow] a CONCILIACIÓN
+    wsCONC.Cells.Clear
+    wsBARC.Range("A1:H" & lastRow).Copy
+    wsCONC.Range("A1").PasteSpecial xlPasteAll
+    Application.CutCopyMode = False
+
+    ' 3) Guardar copia en INTERMEDIARIOS como BARCLAYS_yyyymmdd.xlsx (Hoja1)
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "BARCLAYS_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs Filename:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Listo. Guardado como:" & vbCrLf & fullSave, vbInformation
+
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
