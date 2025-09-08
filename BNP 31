@@ -1,0 +1,23 @@
+' 9) Revisar CAD en C: voltear B <-> S y swap D <-> E
+Dim lastRowCONC As Long
+Dim cur As String, valB As String, tmp As Variant
+
+lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+
+For i = 2 To lastRowCONC
+    cur = UCase$(Trim$(CStr(wsCONC.Cells(i, "C").Value)))
+    If cur = "CAD" Then
+        ' Flip B
+        valB = UCase$(Trim$(CStr(wsCONC.Cells(i, "B").Value)))
+        If valB = "B" Then
+            wsCONC.Cells(i, "B").Value = "S"
+        ElseIf valB = "S" Then
+            wsCONC.Cells(i, "B").Value = "B"
+        End If
+        
+        ' Swap D and E
+        tmp = wsCONC.Cells(i, "D").Value
+        wsCONC.Cells(i, "D").Value = wsCONC.Cells(i, "E").Value
+        wsCONC.Cells(i, "E").Value = tmp
+    End If
+Next i
