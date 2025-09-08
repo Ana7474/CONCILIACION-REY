@@ -1,0 +1,30 @@
+' 8) Volcar a CONCILIACIÓN usando última fila basada en G
+Dim lastRowMap As Long
+
+' calcular última fila por columna G (debe tener encabezados en fila 1)
+lastRowMap = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+If lastRowMap < 2 Then
+    MsgBox "No hay filas para copiar (columna G vacía).", vbExclamation
+    GoTo TidyExit
+End If
+
+' limpiar CONCILIACIÓN y poner encabezados según el mapeo
+wsCONC.Cells.Clear
+wsCONC.Range("A1").Value = wsDATA.Range("G1").Value   ' A <- G
+wsCONC.Range("B1").Value = wsDATA.Range("H1").Value   ' B <- H
+wsCONC.Range("C1").Value = wsDATA.Range("I1").Value   ' C <- I
+wsCONC.Range("D1").Value = wsDATA.Range("J1").Value   ' D <- J
+wsCONC.Range("E1").Value = wsDATA.Range("N1").Value   ' E <- N
+wsCONC.Range("F1").Value = wsDATA.Range("K1").Value   ' F <- K
+wsCONC.Range("G1").Value = wsDATA.Range("E1").Value   ' G <- E
+wsCONC.Range("H1").Value = wsDATA.Range("L1").Value   ' H <- L
+
+' volcar datos (valores) respetando el mismo número de filas
+wsCONC.Range("A2").Resize(lastRowMap - 1).Value = wsDATA.Range("G2").Resize(lastRowMap - 1).Value ' A <- G
+wsCONC.Range("B2").Resize(lastRowMap - 1).Value = wsDATA.Range("H2").Resize(lastRowMap - 1).Value ' B <- H
+wsCONC.Range("C2").Resize(lastRowMap - 1).Value = wsDATA.Range("I2").Resize(lastRowMap - 1).Value ' C <- I
+wsCONC.Range("D2").Resize(lastRowMap - 1).Value = wsDATA.Range("J2").Resize(lastRowMap - 1).Value ' D <- J
+wsCONC.Range("E2").Resize(lastRowMap - 1).Value = wsDATA.Range("N2").Resize(lastRowMap - 1).Value ' E <- N
+wsCONC.Range("F2").Resize(lastRowMap - 1).Value = wsDATA.Range("K2").Resize(lastRowMap - 1).Value ' F <- K
+wsCONC.Range("G2").Resize(lastRowMap - 1).Value = wsDATA.Range("E2").Resize(lastRowMap - 1).Value ' G <- E
+wsCONC.Range("H2").Resize(lastRowMap - 1).Value = wsDATA.Range("L2").Resize(lastRowMap - 1).Value ' H <- L
