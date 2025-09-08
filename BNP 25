@@ -1,0 +1,13 @@
+' 5) En columna E: dejar solo lo que está antes del primer espacio (como texto)
+lastRow = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+For i = 2 To lastRow
+    Dim txt As String, pos As Long
+    txt = Trim$(CStr(wsDATA.Cells(i, "E").Value))
+    If Len(txt) > 0 Then
+        pos = InStr(txt, " ")
+        If pos > 0 Then txt = Left$(txt, pos - 1)
+        wsDATA.Cells(i, "E").Value = txt
+    End If
+Next i
+' Mantener como texto (no forzar formato fecha todavía)
+wsDATA.Range("E2:E" & lastRow).NumberFormat = "@"
