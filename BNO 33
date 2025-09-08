@@ -1,0 +1,13 @@
+' 4b) Eliminar filas donde W contenga "Gerardo Manuel SANCHEZ NUNEZ" (sin distinguir may/min)
+Dim valW As String
+lastRow = wsDATA.Cells(wsDATA.Rows.Count, "W").End(xlUp).Row
+For i = lastRow To 2 Step -1
+    ' normaliza espacios raros y compara sin distinguir mayúsculas
+    valW = CStr(wsDATA.Cells(i, "W").Value)
+    valW = Replace$(valW, Chr$(160), " ")           ' NBSP -> espacio
+    valW = Replace$(valW, ChrW$(&H202F), " ")       ' espacio delgado
+    valW = Trim$(valW)
+    If InStr(1, valW, "Gerardo Manuel SANCHEZ NUNEZ", vbTextCompare) > 0 Then
+        wsDATA.Rows(i).Delete
+    End If
+Next i
