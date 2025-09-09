@@ -1,0 +1,27 @@
+' 5) Si A es "USD CAD" o "USD JPY", voltear lado en B y swap D<->E
+lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+If lastRowCONC >= 2 Then
+    Dim pairTxt As String, pairNoSpace As String, side As String, tmpVal As Variant
+    For i = 2 To lastRowCONC
+        pairTxt = WorksheetFunction.Trim(CStr(wsCONC.Cells(i, "A").Value))
+        pairNoSpace = UCase$(Replace(pairTxt, " ", "")) ' USDCAD / USDJPY
+
+        If UCase$(pairTxt) = "USD CAD" Or UCase$(pairTxt) = "USD JPY" _
+           Or pairNoSpace = "USDCAD" Or pairNoSpace = "USDJPY" Then
+
+            ' --- Flip B ---
+            side = UCase$(WorksheetFunction.Trim(CStr(wsCONC.Cells(i, "B").Value)))
+            Select Case side
+                Case "BUY", "COMPRÓ", "COMPRO"
+                    wsCONC.Cells(i, "B").Value = "Sell"
+                Case "SELL", "VENDIÓ", "VENDIO"
+                    wsCONC.Cells(i, "B").Value = "Buy"
+            End Select
+
+            ' --- Swap D and E ---
+            tmpVal = wsCONC.Cells(i, "D").Value
+            wsCONC.Cells(i, "D").Value = wsCONC.Cells(i, "E").Value
+            wsCONC.Cells(i, "E").Value = tmpVal
+        End If
+    Next i
+End If
