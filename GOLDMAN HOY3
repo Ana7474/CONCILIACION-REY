@@ -1,0 +1,20 @@
+' 5) Si A es "USD CAD" o "USD JPY", voltear BUY/SELL en B
+lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+If lastRowCONC >= 2 Then
+    Dim pairTxt As String, pairNoSpace As String, side As String
+    For i = 2 To lastRowCONC
+        pairTxt = UCase$(WorksheetFunction.Trim(CStr(wsCONC.Cells(i, "A").Value)))
+        pairNoSpace = Replace(pairTxt, " ", "")   ' para robustez: "USDCAD"/"USDJPY"
+        
+        If pairTxt = "USD CAD" Or pairTxt = "USD JPY" _
+           Or pairNoSpace = "USDCAD" Or pairNoSpace = "USDJPY" Then
+           
+            side = UCase$(WorksheetFunction.Trim(CStr(wsCONC.Cells(i, "B").Value)))
+            If side = "BUY" Then
+                wsCONC.Cells(i, "B").Value = "SELL"
+            ElseIf side = "SELL" Then
+                wsCONC.Cells(i, "B").Value = "BUY"
+            End If
+        End If
+    Next i
+End If
