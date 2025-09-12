@@ -1,0 +1,238 @@
+Option Explicit
+
+Public Sub BNP()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim i As Long
+    Dim valA As String, s As String, p As Long, d As Variant
+
+    ' Hojas
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Limpiar DATA y CONCILIACIÓN
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Seleccionar archivo CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abrir CSV y pegar en DATA!A1
+    Set wbCSV = Workbooks.Open(fileName:=filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+
+    wbCSV.Close SaveChanges:=False
+
+    ' 4) Eliminar filas donde A = "Failed"
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    Dim iRow As Long
+    For iRow = lastRow To 2 Step -1
+        valA = Trim$(UCase$(CStr(wsDATA.Cells(iRow, "A").Value)))
+        If valA = "FAILED" Then
+            wsDATA.Rows(iRow).Delete
+        End If
+    Next iRow
+    
+    Dim valW As String
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "W").End(xlUp).Row
+    For i = lastRow To 2 Step -1
+        ' normaliza espacios raros y compara sin distinguir mayúsculas
+        valW = CStr(wsDATA.Cells(i, "W").Value)
+        valW = Replace$(valW, Chr$(160), " ")           ' NBSP -> espacio
+        valW = Replace$(valW, ChrW$(&H202F), " ")       ' espacio delgado
+        valW = Trim$(valW)
+        If InStr(1, valW, "Gerardo Manuel SANCHEZ NUNEZ", vbTextCompare) > 0 Then
+            wsDATA.Rows(i).Delete
+        End If
+    Next i
+
+    ' 5) En columna E: dejar solo lo que está antes del primer espacio (como texto)
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+    For i = 2 To lastRow
+        Dim txt As String, pos As Long
+        txt = Trim$(CStr(wsDATA.Cells(i, "E").Value))
+        If Len(txt) > 0 Then
+            pos = InStr(txt, " ")
+            If pos > 0 Then txt = Left$(txt, pos - 1)
+            wsDATA.Cells(i, "E").Value = txt
+        End If
+    Next i
+    ' Mantener como texto (no forzar formato fecha todavía)
+    wsDATA.Range("E2:E" & lastRow).NumberFormat = "@"
+    
+    ' 6) Copiar solo el formato de L en E
+    Dim lastRowL As Long
+    lastRowL = wsDATA.Cells(wsDATA.Rows.Count, "L").End(xlUp).Row
+    If lastRow > 1 And lastRowL > 1 Then
+        wsDATA.Range("L2:L" & lastRowL).Copy
+        wsDATA.Range("E2:E" & lastRow).PasteSpecial Paste:=xlPasteFormats
+        Application.CutCopyMode = False
+    End If
+
+    ' 7) Dejar sólo las filas con la fecha de HOY en columna E
+    Dim todayDate As Date
+    Dim keep As Boolean
+    Dim parts() As String
+    Dim dd As Long, mm As Long, yy As Long
+    
+    todayDate = Date
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+    
+    For i = lastRow To 2 Step -1
+        keep = False
+        
+        If IsDate(wsDATA.Cells(i, "E").Value) Then
+            ' Si Excel lo reconoce como fecha, comparar directo
+            If DateValue(wsDATA.Cells(i, "E").Value) = todayDate Then keep = True
+        Else
+            ' Si es texto, normalizar y parsear como dd/mm/yyyy (o yyyy/mm/dd)
+            s = CStr(wsDATA.Cells(i, "E").Value)
+            s = Replace$(s, Chr$(160), " ")            ' NBSP -> space
+            s = Replace$(s, ChrW$(&H202F), " ")        ' narrow NBSP -> space
+            s = Trim$(s)
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)          ' (por si aún trae hora)
+            s = Replace$(s, ".", "/")
+            s = Replace$(s, "-", "/")
+            s = WorksheetFunction.Trim(s)
+            
+            parts = Split(s, "/")
+            If UBound(parts) = 2 Then
+                On Error Resume Next
+                If Len(parts(0)) = 4 Then
+                    ' yyyy/mm/dd
+                    yy = CLng(parts(0)): mm = CLng(parts(1)): dd = CLng(parts(2))
+                Else
+                    ' dd/mm/yyyy
+                    dd = CLng(parts(0)): mm = CLng(parts(1)): yy = CLng(parts(2))
+                End If
+                d = DateSerial(yy, mm, dd)
+                On Error GoTo 0
+                If IsDate(d) Then
+                    If DateValue(d) = todayDate Then keep = True
+                End If
+            End If
+        End If
+        
+        If Not keep Then wsDATA.Rows(i).Delete
+    Next i
+
+    ' 8) Volcar a CONCILIACIÓN usando última fila basada en G
+    Dim lastRowMap As Long
+    
+    ' calcular última fila por columna G (debe tener encabezados en fila 1)
+    lastRowMap = wsDATA.Cells(wsDATA.Rows.Count, "G").End(xlUp).Row
+    If lastRowMap < 2 Then
+        MsgBox "No hay filas para copiar (columna G vacía).", vbExclamation
+        GoTo TidyExit
+    End If
+    
+    ' limpiar CONCILIACIÓN y poner encabezados según el mapeo
+    wsCONC.Cells.Clear
+    wsCONC.Range("A1").Value = wsDATA.Range("G1").Value   ' A <- G
+    wsCONC.Range("B1").Value = wsDATA.Range("H1").Value   ' B <- H
+    wsCONC.Range("C1").Value = wsDATA.Range("I1").Value   ' C <- I
+    wsCONC.Range("D1").Value = wsDATA.Range("J1").Value   ' D <- J
+    wsCONC.Range("E1").Value = wsDATA.Range("N1").Value   ' E <- N
+    wsCONC.Range("F1").Value = wsDATA.Range("K1").Value   ' F <- K
+    wsCONC.Range("G1").Value = wsDATA.Range("E1").Value   ' G <- E
+    wsCONC.Range("H1").Value = wsDATA.Range("L1").Value   ' H <- L
+    
+    ' volcar datos (valores) respetando el mismo número de filas
+    wsCONC.Range("A2").Resize(lastRowMap - 1).Value = wsDATA.Range("G2").Resize(lastRowMap - 1).Value ' A <- G
+    wsCONC.Range("B2").Resize(lastRowMap - 1).Value = wsDATA.Range("H2").Resize(lastRowMap - 1).Value ' B <- H
+    wsCONC.Range("C2").Resize(lastRowMap - 1).Value = wsDATA.Range("I2").Resize(lastRowMap - 1).Value ' C <- I
+    wsCONC.Range("D2").Resize(lastRowMap - 1).Value = wsDATA.Range("J2").Resize(lastRowMap - 1).Value ' D <- J
+    wsCONC.Range("E2").Resize(lastRowMap - 1).Value = wsDATA.Range("N2").Resize(lastRowMap - 1).Value ' E <- N
+    wsCONC.Range("F2").Resize(lastRowMap - 1).Value = wsDATA.Range("K2").Resize(lastRowMap - 1).Value ' F <- K
+    wsCONC.Range("G2").Resize(lastRowMap - 1).Value = wsDATA.Range("E2").Resize(lastRowMap - 1).Value ' G <- E
+    wsCONC.Range("H2").Resize(lastRowMap - 1).Value = wsDATA.Range("L2").Resize(lastRowMap - 1).Value ' H <- L
+    MsgBox "Listo: CSV importado en DATA, filas 'Failed' eliminadas, fechas en E normalizadas.", vbInformation
+
+    ' 9) Revisar CAD en C: voltear B <-> S y swap D <-> E
+    Dim lastRowCONC As Long
+    Dim cur As String, valB As String, tmp As Variant
+    
+    lastRowCONC = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    
+    For i = 2 To lastRowCONC
+        cur = UCase$(Trim$(CStr(wsCONC.Cells(i, "C").Value)))
+        If cur = "CAD" Then
+            ' Flip B
+            valB = UCase$(Trim$(CStr(wsCONC.Cells(i, "B").Value)))
+            If valB = "B" Then
+                wsCONC.Cells(i, "B").Value = "S"
+            ElseIf valB = "S" Then
+                wsCONC.Cells(i, "B").Value = "B"
+            End If
+            
+            ' Swap D and E
+            tmp = wsCONC.Cells(i, "D").Value
+            wsCONC.Cells(i, "D").Value = wsCONC.Cells(i, "E").Value
+            wsCONC.Cells(i, "E").Value = tmp
+        End If
+    Next i
+    
+        ' 10) Guardar CONCILIACIÓN como nuevo archivo en INTERMEDIARIOS CASA DE BOLSA
+    Dim shellObj As Object, saveRoot As String, savePath As String
+    Dim fileName As String, fullSave As String
+    Dim wbNew As Workbook
+    
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+    
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+    
+    fileName = "BNP_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+    
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+    
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+    
+    MsgBox "Proceso terminado. Archivo guardado en:" & vbCrLf & fullSave, vbInformation
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+
