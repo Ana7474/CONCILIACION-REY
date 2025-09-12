@@ -1,0 +1,29 @@
+    ' === Filter G to only keep today's date ===
+    Dim todayDate As Date
+    todayDate = Date
+    
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "G").End(xlUp).Row
+    If lastRowConc >= 2 Then
+        ' Remove any filter
+        If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+        
+        ' Apply filter on column G for today's date
+        wsCONC.Range("A1:H" & lastRowConc).AutoFilter Field:=7, Criteria1:=todayDate
+        
+        ' Delete rows not visible
+        With wsCONC.Range("A2:H" & lastRowConc)
+            On Error Resume Next
+            .SpecialCells(xlCellTypeVisible).Copy wsCONC.Range("A2")
+            .SpecialCells(xlCellTypeVisible).Offset(, 0).Resize(, 1).EntireRow.Hidden = False
+            On Error GoTo 0
+        End With
+        
+        ' Delete hidden rows (not today)
+        Dim rng As Range
+        For i = lastRowConc To 2 Step -1
+            If wsCONC.Rows(i).Hidden Then wsCONC.Rows(i).Delete
+        Next i
+        
+        ' Clear filter
+        If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+    End If
