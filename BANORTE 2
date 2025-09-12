@@ -1,0 +1,24 @@
+' 3) Abrir CSV y copiar a DATA!A1 (como en los otros CSV)
+Set wbCSV = Workbooks.Open(Filename:=filePath)
+Set wsCSV = wbCSV.Sheets(1)
+
+Dim found As Range, lastRow As Long, lastCol As Long, gotData As Boolean
+gotData = False
+
+Set found = wsCSV.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                             SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+If Not found Is Nothing Then
+    lastRow = found.Row
+    Set found = wsCSV.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+    lastCol = found.Column
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    gotData = True
+End If
+
+wbCSV.Close SaveChanges:=False
+
+If Not gotData Then
+    MsgBox "El CSV está vacío o no se detectó información.", vbExclamation
+    GoTo TidyExit
+End If
