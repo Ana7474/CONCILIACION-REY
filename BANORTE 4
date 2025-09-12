@@ -1,0 +1,23 @@
+    ' 6) Limpiar fechas en columna G (eliminar hora, dejar solo fecha)
+    Dim lastRowConc As Long, d As Variant, s As String, p As Long
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "G").End(xlUp).Row
+    
+    For i = 2 To lastRowConc
+        s = Trim$(CStr(wsCONC.Cells(i, "G").Value))
+        If Len(s) > 0 Then
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)
+            
+            On Error Resume Next
+            d = CDate(s)
+            On Error GoTo 0
+            
+            If IsDate(d) Then
+                wsCONC.Cells(i, "G").Value = DateValue(d)
+            Else
+                wsCONC.Cells(i, "G").ClearContents
+            End If
+        End If
+    Next i
+    
+    wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
