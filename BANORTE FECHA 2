@@ -1,0 +1,59 @@
+' 6) Forzar texto, cortar tras el primer espacio, reconvertir a fecha (dd/mm/yyyy)
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+
+Dim cell As Range, s As String, p As Long
+Dim parts() As String
+Dim y As Integer, m As Integer, dday As Integer
+
+For Each cell In wsCONC.Range("G2:G" & lastRowConc)
+    If Len(Trim$(cell.Value)) = 0 Then GoTo NextCell
+
+    ' 6.1 Renderiza como texto con fecha+hora para garantizar el espacio
+    cell.NumberFormat = "dd/mm/yyyy hh:mm:ss AM/PM"
+    s = cell.Text
+
+    ' 6.2 Normaliza espacios y AM/PM
+    s = Replace$(s, Chr$(160), " ")
+    s = Replace$(s, ChrW$(&H202F), " ")
+    s = Replace$(s, " a. m.", " AM")
+    s = Replace$(s, " p. m.", " PM")
+    s = Replace$(s, " a.m.", " AM")
+    s = Replace$(s, " p.m.", " PM")
+    s = Replace$(s, "T", " ")  ' por si viene ISO 2025-09-15T10:21:00
+
+    ' 6.3 Quédate con todo antes del primer espacio (solo la fecha)
+    p = InStr(s, " ")
+    If p > 0 Then s = Left$(s, p - 1)
+
+    ' 6.4 Reconvierte a fecha real de forma segura
+    If InStr(s, "-") > 0 Then
+        parts = Split(s, "-")            ' asume yyyy-mm-dd
+        If UBound(parts) = 2 Then
+            y = CInt(parts(0)): m = CInt(parts(1)): dday = CInt(parts(2))
+            cell.Value = DateSerial(y, m, dday)
+        ElseIf IsDate(s) Then
+            cell.Value = DateValue(s)
+        Else
+            cell.Value = s
+        End If
+    ElseIf InStr(s, "/") > 0 Then
+        parts = Split(s, "/")            ' asume dd/mm/yyyy
+        If UBound(parts) = 2 Then
+            dday = CInt(parts(0)): m = CInt(parts(1)): y = CInt(parts(2))
+            cell.Value = DateSerial(y, m, dday)
+        ElseIf IsDate(s) Then
+            cell.Value = DateValue(s)
+        Else
+            cell.Value = s
+        End If
+    ElseIf IsDate(s) Then
+        cell.Value = DateValue(s)
+    Else
+        cell.Value = s
+    End If
+
+    ' 6.5 Muestra solo día/mes/año
+    cell.NumberFormat = "dd/mm/yyyy"
+
+NextCell:
+Next cell
