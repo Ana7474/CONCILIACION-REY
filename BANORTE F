@@ -1,0 +1,26 @@
+' 6) Dejar solo la fecha en G (todo antes del primer espacio) y convertir a fecha real
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+
+Dim s As String, p As Long
+For i = 2 To lastRowConc
+    ' Toma el texto visible (si hay hora, vendrá después del espacio)
+    s = wsCONC.Cells(i, "G").Text
+
+    ' Normaliza posibles espacios no-rompibles
+    s = Replace$(s, Chr$(160), " ")
+    s = Replace$(s, ChrW$(&H202F), " ")
+
+    ' Corta en el primer espacio (elimina hora "10:21:00 a. m.", etc.)
+    p = InStr(s, " ")
+    If p > 0 Then s = Left$(s, p - 1)
+
+    ' Convierte a fecha real si es interpretable; así el filtro por "todayDate" funciona
+    If IsDate(s) Then
+        wsCONC.Cells(i, "G").Value = DateValue(s)
+    Else
+        wsCONC.Cells(i, "G").Value = s  ' deja texto si no se puede convertir
+    End If
+Next i
+
+' Muestra solo día/mes/año
+wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
