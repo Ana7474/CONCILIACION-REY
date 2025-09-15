@@ -1,0 +1,44 @@
+' 6) Normalizar fechas en G: quitar hora y dejar dd/mm/yyyy (valor real fecha)
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row   ' CONSISTENTE: col A
+
+Dim v As Variant, s As String
+
+For i = 2 To lastRowConc
+    v = wsCONC.Cells(i, "G").Value
+    
+    If IsDate(v) Then
+        ' v ya es fecha/hora -> deja solo la fecha
+        wsCONC.Cells(i, "G").Value = DateSerial(Year(v), Month(v), Day(v))
+    Else
+        ' v es texto -> limpiar y tomar solo la parte de fecha
+        s = CStr(v)
+        ' reemplazar espacios no estándar
+        s = Replace$(s, Chr$(160), " ")                ' NBSP
+        s = Replace$(s, ChrW$(&H202F), " ")           ' narrow NBSP
+        s = Trim$(s)
+        ' quitar sufijos comunes en español
+        s = Replace$(s, " a. m.", "", , , vbTextCompare)
+        s = Replace$(s, " p. m.", "", , , vbTextCompare)
+        s = Replace$(s, " a. m.", "", , , vbTextCompare) ' con espacio angosto
+        s = Replace$(s, " p. m.", "", , , vbTextCompare)
+        s = Replace$(s, " a.m.", "", , , vbTextCompare)
+        s = Replace$(s, " p.m.", "", , , vbTextCompare)
+        ' si hay separador de fecha/hora, corta en el primero (cubre " ", "T", etc.)
+        Dim sepPos As Long
+        sepPos = InStr(s, " ")
+        If sepPos = 0 Then sepPos = InStr(1, s, "T", vbTextCompare)
+        If sepPos > 0 Then s = Left$(s, sepPos - 1)
+        ' fallback: si aún es largo, toma los primeros 10 (dd/mm/yyyy)
+        If Len(s) >= 10 Then s = Left$(s, 10)
+        
+        If IsDate(s) Then
+            wsCONC.Cells(i, "G").Value = CDate(s)
+        Else
+            ' deja el texto como está si no se pudo convertir
+            wsCONC.Cells(i, "G").Value = s
+        End If
+    End If
+Next i
+
+' Formato de visualización sólo fecha
+wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
