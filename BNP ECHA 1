@@ -1,0 +1,69 @@
+' 7) DEBUG: evaluar fecha en E SIN borrar (colorear y contar)
+todayDate = Date
+lastRow = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+
+Dim keptCnt As Long, badDateCnt As Long, notTodayCnt As Long
+keptCnt = 0: badDateCnt = 0: notTodayCnt = 0
+
+' clear previous fills
+wsDATA.Range("A2:Z" & lastRow).Interior.ColorIndex = xlNone
+
+For i = 2 To lastRow
+    keep = False
+
+    If IsDate(wsDATA.Cells(i, "E").Value) Then
+        If DateValue(wsDATA.Cells(i, "E").Value) = todayDate Then
+            keep = True
+        End If
+    Else
+        s = CStr(wsDATA.Cells(i, "E").Value)
+        s = Replace$(s, Chr$(160), " ")            ' NBSP -> space
+        s = Replace$(s, ChrW$(&H202F), " ")        ' thin NBSP -> space
+        s = Trim$(s)
+        p = InStr(s, " ")
+        If p > 0 Then s = Left$(s, p - 1)
+        s = Replace$(s, ".", "/")
+        s = Replace$(s, "-", "/")
+        s = WorksheetFunction.Trim(s)
+
+        parts = Split(s, "/")
+        If UBound(parts) = 2 Then
+            On Error Resume Next
+            If Len(parts(0)) = 4 Then
+                yy = CLng(parts(0)): mm = CLng(parts(1)): dd = CLng(parts(2))   ' yyyy/mm/dd
+            Else
+                dd = CLng(parts(0)): mm = CLng(parts(1)): yy = CLng(parts(2))   ' dd/mm/yyyy
+            End If
+            d = DateSerial(yy, mm, dd)
+            On Error GoTo 0
+            If IsDate(d) Then
+                If DateValue(d) = todayDate Then keep = True
+            Else
+                d = Empty
+            End If
+        Else
+            d = Empty
+        End If
+    End If
+
+    If keep Then
+        keptCnt = keptCnt + 1
+        ' green
+        wsDATA.Rows(i).Interior.Color = RGB(198, 239, 206)
+    Else
+        If IsEmpty(d) And Not IsDate(wsDATA.Cells(i, "E").Value) Then
+            badDateCnt = badDateCnt + 1
+            ' red (bad/parse fail)
+            wsDATA.Rows(i).Interior.Color = RGB(255, 199, 206)
+        Else
+            notTodayCnt = notTodayCnt + 1
+            ' yellow (valid date but not today)
+            wsDATA.Rows(i).Interior.Color = RGB(255, 235, 156)
+        End If
+    End If
+Next i
+
+MsgBox "DEBUG fechas en E:" & vbCrLf & _
+       "Mantendría (fecha de HOY): " & keptCnt & vbCrLf & _
+       "Fecha válida pero NO hoy: " & notTodayCnt & vbCrLf & _
+       "No se pudo interpretar la fecha: " & badDateCnt, vbInformation
