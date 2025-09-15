@@ -1,0 +1,44 @@
+' 6) Columna G en CONCILIACIÓN: quitar hora y dejar solo la fecha (dd/mm/yyyy)
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row  ' CONSISTENTE: col A
+
+Dim v As Variant, t As String
+
+For i = 2 To lastRowConc
+    v = wsCONC.Cells(i, "G").Value
+
+    If IsDate(v) Then
+        ' Si ya es fecha/hora real, quita la fracción (hora) con Int()
+        wsCONC.Cells(i, "G").Value = Int(CDbl(v))
+    Else
+        ' Texto: limpiar y parsear
+        t = CStr(v)
+        ' Normaliza espacios y quita indicadores de AM/PM en español e inglés
+        t = Replace$(t, Chr$(160), " ")               ' NBSP -> espacio normal
+        t = Replace$(t, ChrW$(&H202F), " ")           ' NBSP delgado -> espacio
+        t = Replace$(t, "a. m.", "", 1, -1, vbTextCompare)
+        t = Replace$(t, "p. m.", "", 1, -1, vbTextCompare)
+        t = Replace$(t, "a. m",  "", 1, -1, vbTextCompare)
+        t = Replace$(t, "p. m",  "", 1, -1, vbTextCompare)
+        t = Replace$(t, "AM",    "", 1, -1, vbTextCompare)
+        t = Replace$(t, "PM",    "", 1, -1, vbTextCompare)
+        t = Trim$(t)
+
+        ' Corta todo lo que siga del primer espacio (fecha + hora -> solo fecha)
+        p = InStr(t, " ")
+        If p > 0 Then t = Left$(t, p - 1)
+
+        ' Normaliza separadores y convierte
+        t = Replace$(t, ".", "/")
+        t = Replace$(t, "-", "/")
+        t = WorksheetFunction.Trim(t)
+
+        If IsDate(t) Then
+            wsCONC.Cells(i, "G").Value = DateValue(t)
+        Else
+            ' Si no se puede interpretar, deja el texto tal cual
+            wsCONC.Cells(i, "G").Value = t
+        End If
+    End If
+Next i
+
+wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
