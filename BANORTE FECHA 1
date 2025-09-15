@@ -1,0 +1,62 @@
+' 6) Normalizar fechas en G (quitar hora y formatear dd/mm/yyyy)
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row   ' CONSISTENTE: col A
+
+Dim v As Variant, d As Date, s As String, pSp As Long, pT As Long
+For i = 2 To lastRowConc
+    v = wsCONC.Cells(i, "G").Value
+    
+    If IsDate(v) Then
+        ' Si ya es fecha/hora de Excel, quita la parte de hora con Int(CDbl())
+        wsCONC.Cells(i, "G").Value = Int(CDbl(v))
+    Else
+        ' Normaliza texto: quita NBSPs y “a. m.” / “p. m.” (ES-MX)
+        s = CStr(v)
+        s = Replace$(s, Chr$(160), " ")                ' NBSP
+        s = Replace$(s, ChrW$(&H202F), " ")            ' Narrow NBSP
+        s = LCase$(Trim$(s))
+        s = Replace$(s, " a. m.", "")
+        s = Replace$(s, " p. m.", "")
+        s = Replace$(s, " a.m.", "")
+        s = Replace$(s, " p.m.", "")
+        s = Replace$(s, " am", "")
+        s = Replace$(s, " pm", "")
+        
+        ' Si viene ISO (2025-09-15T10:21:00), corta en "T"
+        pT = InStr(s, "t")
+        If pT > 0 Then s = Left$(s, pT - 1)
+        ' Corta cualquier cosa después del primer espacio (hora)
+        pSp = InStr(s, " ")
+        If pSp > 0 Then s = Left$(s, pSp - 1)
+        
+        If IsDate(s) Then
+            d = CDate(s)
+            wsCONC.Cells(i, "G").Value = DateSerial(Year(d), Month(d), Day(d))
+        Else
+            ' Deja el dato tal cual si no es interpretable
+            wsCONC.Cells(i, "G").Value = v
+        End If
+    End If
+Next i
+
+' Formato de presentación sin hora
+wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
+
+
+' 9) FILTRAR G para dejar sólo la fecha de hoy (y eliminar el resto)
+todayDate = Date
+Dim todaySerial As Double
+todaySerial = Int(CDbl(todayDate)) ' aseguramos serial sin hora
+
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+If lastRowConc >= 2 Then
+    If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+    wsCONC.Range("A1:H" & lastRowConc).AutoFilter Field:=7, Criteria1:=todaySerial
+
+    ' Eliminar filas no visibles (no hoy)
+    Dim r As Long
+    For r = lastRowConc To 2 Step -1
+        If wsCONC.Rows(r).Hidden Then wsCONC.Rows(r).Delete
+    Next r
+
+    If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+End If
