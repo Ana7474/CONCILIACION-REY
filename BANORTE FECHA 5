@@ -1,0 +1,33 @@
+' 6) Limpiar fechas en G (quitar hora) y formatear dd/mm/yyyy (robusto)
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row  ' CONSISTENTE: col A
+Dim raw As String, t As Long, dVal As Variant
+
+For i = 2 To lastRowConc
+    With wsCONC.Cells(i, "G")
+        If IsDate(.Value) Then
+            ' Caso: valor fecha/hora real -> quitar hora
+            .Value = DateValue(.Value)                      ' o: .Value = CLng(CDbl(.Value))
+        Else
+            ' Caso: texto -> limpiar y convertir
+            raw = CStr(.Value)
+            ' Normaliza espacios
+            raw = Replace$(raw, Chr$(160), " ")            ' NBSP → space
+            raw = Replace$(raw, ChrW$(&H202F), " ")        ' narrow NBSP → space
+            raw = Trim$(raw)
+            ' Corta en el primer espacio (antes de la hora / a. m. / p. m.)
+            t = InStr(raw, " ")
+            If t > 0 Then raw = Left$(raw, t - 1)
+            ' Normaliza separadores
+            raw = Replace$(raw, ".", "/")
+            raw = Replace$(raw, "-", "/")
+            raw = WorksheetFunction.Trim(raw)
+
+            On Error Resume Next
+            dVal = DateValue(CDate(raw))
+            On Error GoTo 0
+            If IsDate(dVal) Then .Value = dVal
+        End If
+        ' Asegura formato de fecha corto (dd/mm/yyyy)
+        .NumberFormat = "dd/mm/yyyy"
+    End With
+Next i
