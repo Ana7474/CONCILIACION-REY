@@ -1,0 +1,64 @@
+' ==== 6) Fecha en G: convertir a TEXTO, cortar 10 chars, y volver a FECHA ====
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row   ' CONSISTENTE: col A
+
+Dim s As String, tok As String, d As Date
+
+For i = 2 To lastRowConc
+    ' 1) Tomar como TEXTO lo que haya en G
+    s = CStr(wsCONC.Cells(i, "G").Value)
+    s = CleanSpacesAndAMPM_(s)
+    s = Trim$(s)
+
+    ' 2) Tomar sólo la parte de FECHA (primer “token” antes de cualquier separador de hora)
+    tok = FirstDateToken_(s)            ' corta en espacio/T/ coma, etc.
+
+    ' 3) Si aún es largo, mantener EXACTAMENTE los primeros 10 chars (dd/mm/yyyy)
+    If Len(tok) >= 10 Then tok = Left$(tok, 10)
+
+    ' 4) Intentar convertir a fecha real; si no se puede, dejar el texto recortado
+    If IsDate(tok) Then
+        ' Guardar como FECHA real (sin hora)
+        d = CDate(tok)
+        wsCONC.Cells(i, "G").Value = DateSerial(Year(d), Month(d), Day(d))
+    Else
+        ' Dejar el texto por si viene en un formato no reconocible
+        wsCONC.Cells(i, "G").Value = tok
+    End If
+Next i
+
+' Mostrar solo la fecha
+wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
+
+' ==== Helpers ====
+Private Function CleanSpacesAndAMPM_(ByVal s As String) As String
+    ' Normaliza espacios raros y quita sufijos "a. m./p. m." en español (con o sin puntos/espacios)
+    s = Replace$(s, Chr$(160), " ")          ' NBSP
+    s = Replace$(s, ChrW$(&H202F), " ")      ' narrow NBSP
+    s = Replace$(s, "a. m.", "", , , vbTextCompare)
+    s = Replace$(s, "p. m.", "", , , vbTextCompare)
+    s = Replace$(s, "a.m.", "", , , vbTextCompare)
+    s = Replace$(s, "p.m.", "", , , vbTextCompare)
+    s = Replace$(s, "a m", "", , , vbTextCompare)
+    s = Replace$(s, "p m", "", , , vbTextCompare)
+    CleanSpacesAndAMPM_ = Trim$(s)
+End Function
+
+Private Function FirstDateToken_(ByVal s As String) As String
+    ' Corta el string en el primer separador típico de fecha/hora
+    Dim p As Long, cut As Long
+    cut = 0
+
+    ' Separadores que solemos ver: espacio, "T", coma
+    p = InStr(1, s, " ")
+    If p > 0 Then cut = p
+    p = InStr(1, s, "T", vbTextCompare)
+    If p > 0 And (cut = 0 Or p < cut) Then cut = p
+    p = InStr(1, s, ",")
+    If p > 0 And (cut = 0 Or p < cut) Then cut = p
+
+    If cut > 1 Then
+        FirstDateToken_ = Left$(s, cut - 1)
+    Else
+        FirstDateToken_ = s
+    End If
+End Function
