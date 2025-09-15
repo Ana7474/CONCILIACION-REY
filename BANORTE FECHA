@@ -1,0 +1,200 @@
+Option Explicit
+
+Public Sub BANORTE()
+    On Error GoTo ErrHandler
+
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRowData As Long, lastCol As Long
+    Dim i As Long, txt As String, pos As Long
+    Dim lastRowConc As Long
+    Dim shellObj As Object, saveRoot As String, savePath As String
+    Dim fileName As String, fullSave As String
+    Dim wbNew As Workbook
+    Dim todayDate As Date
+    Dim found As Range
+
+    ' Hojas
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo ErrHandler
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Limpiar hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Seleccionar archivo CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abrir CSV y copiar a DATA
+    Set wbCSV = Workbooks.Open(fileName:=filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    Set found = wsCSV.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If found Is Nothing Then
+        wbCSV.Close SaveChanges:=False
+        MsgBox "El CSV está vacío o no se detectó información.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(found.Row, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' ===== Última fila CONSISTENTE en DATA (columna E) =====
+    lastRowData = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+    If lastRowData < 2 Then
+        MsgBox "No hay filas de datos en DATA (columna E vacía).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 4) Columna D en DATA: COMPRA -> BUY, VENTA -> SELL (hasta lastRowData)
+    For i = 2 To lastRowData
+        txt = UCase$(Trim$(CStr(wsDATA.Cells(i, "D").Value)))
+        txt = Replace$(txt, Chr$(160), " ")
+        txt = Replace$(txt, ChrW$(&H202F), " ")
+        If txt = "COMPRA" Then
+            wsDATA.Cells(i, "D").Value = "BUY"
+        ElseIf txt = "VENTA" Then
+            wsDATA.Cells(i, "D").Value = "SELL"
+        End If
+    Next i
+
+    ' 5) Volcar columnas a CONCILIACIÓN (E->A, D->B, K->D, F->F, G->G, H->H)
+    wsCONC.Cells.Clear
+    ' Encabezados
+    wsCONC.Range("A1").Value = wsDATA.Range("E1").Value   ' A <- E
+    wsCONC.Range("B1").Value = wsDATA.Range("D1").Value   ' B <- D
+    wsCONC.Range("C1").Value = "Prefijo"                  ' C = LEFT(A,3)
+    wsCONC.Range("D1").Value = wsDATA.Range("K1").Value   ' D <- K
+    wsCONC.Range("E1").Value = "Monto"                    ' E = D * F
+    wsCONC.Range("F1").Value = wsDATA.Range("F1").Value   ' F <- F
+    wsCONC.Range("G1").Value = wsDATA.Range("G1").Value   ' G <- G
+    wsCONC.Range("H1").Value = wsDATA.Range("H1").Value   ' H <- H
+
+    ' Datos (usa lastRowData filas)
+    wsCONC.Range("A2").Resize(lastRowData - 1).Value = wsDATA.Range("E2").Resize(lastRowData - 1).Value
+    wsCONC.Range("B2").Resize(lastRowData - 1).Value = wsDATA.Range("D2").Resize(lastRowData - 1).Value
+    wsCONC.Range("D2").Resize(lastRowData - 1).Value = wsDATA.Range("K2").Resize(lastRowData - 1).Value
+    wsCONC.Range("F2").Resize(lastRowData - 1).Value = wsDATA.Range("F2").Resize(lastRowData - 1).Value
+    wsCONC.Range("G2").Resize(lastRowData - 1).Value = wsDATA.Range("G2").Resize(lastRowData - 1).Value
+    wsCONC.Range("H2").Resize(lastRowData - 1).Value = wsDATA.Range("H2").Resize(lastRowData - 1).Value
+
+    ' 6) Limpiar fechas en G (quitar hora y formatear dd/mm/yyyy)
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row   ' CONSISTENTE: col A
+    For i = 2 To lastRowConc
+        txt = Trim$(CStr(wsCONC.Cells(i, "G").Value))
+        pos = InStr(txt, " ")
+        If pos > 0 Then txt = Left$(txt, pos - 1)
+        If IsDate(txt) Then
+            wsCONC.Cells(i, "G").Value = CDate(txt)
+        Else
+            wsCONC.Cells(i, "G").Value = txt
+        End If
+    Next i
+    wsCONC.Range("G2:G" & lastRowConc).NumberFormat = "dd/mm/yyyy"
+
+    ' 7) C = primeros 3 caracteres de A
+    For i = 2 To lastRowConc
+        txt = Trim$(CStr(wsCONC.Cells(i, "A").Value))
+        If Len(txt) > 0 Then
+            If Len(txt) >= 3 Then
+                wsCONC.Cells(i, "C").Value = Left$(txt, 3)
+            Else
+                wsCONC.Cells(i, "C").Value = txt
+            End If
+        End If
+    Next i
+
+    ' 8) E = D * F
+    For i = 2 To lastRowConc
+        If IsNumeric(wsCONC.Cells(i, "D").Value) And IsNumeric(wsCONC.Cells(i, "F").Value) Then
+            wsCONC.Cells(i, "E").Value = wsCONC.Cells(i, "D").Value * wsCONC.Cells(i, "F").Value
+        Else
+            wsCONC.Cells(i, "E").ClearContents
+        End If
+    Next i
+
+    ' 9) FILTRAR G para dejar sólo la fecha de hoy (y eliminar el resto)
+    todayDate = Date
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row   ' CONSISTENTE: col A
+    If lastRowConc >= 2 Then
+        If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+        wsCONC.Range("A1:H" & lastRowConc).AutoFilter Field:=7, Criteria1:=todayDate
+
+        ' Eliminar filas no visibles (no hoy)
+        For i = lastRowConc To 2 Step -1
+            If wsCONC.Rows(i).Hidden Then wsCONC.Rows(i).Delete
+        Next i
+
+        If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+    End If
+
+    ' 10) Si no quedó nada (sólo encabezados), NO guardar
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row   ' CONSISTENTE: col A
+    If lastRowConc < 2 Then
+        MsgBox "No se encontraron operaciones con la fecha actual. No se guardó el archivo", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 11) Guardar CONCILIACIÓN como BANORTE_yyyymmdd.xlsx en INTERMEDIARIOS
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "BANORTE_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo ErrHandler
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Proceso terminado. Archivo guardado en: " & vbCrLf & fullSave, vbInformation
+    GoTo TidyExit
+
+ErrHandler:
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    MsgBox "Error: " & Err.Number & " - " & Err.Description, vbCritical
+    Exit Sub
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
