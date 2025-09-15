@@ -1,0 +1,249 @@
+Option Explicit
+
+Public Sub BANORTE()
+    On Error GoTo ErrHandler
+
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRowData As Long, lastCol As Long
+    Dim i As Long, txt As String
+    Dim lastRowConc As Long
+    Dim shellObj As Object, saveRoot As String, savePath As String
+    Dim fileName As String, fullSave As String
+    Dim wbNew As Workbook
+    Dim todayDate As Date
+    Dim found As Range
+
+    ' ---------- Hojas ----------
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo ErrHandler
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Limpiar hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Seleccionar archivo CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abrir CSV y copiar a DATA
+    Set wbCSV = Workbooks.Open(fileName:=filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    Set found = wsCSV.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If found Is Nothing Then
+        wbCSV.Close SaveChanges:=False
+        MsgBox "El CSV está vacío o no se detectó información.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(found.Row, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' ===== Última fila CONSISTENTE en DATA (usando col E como ancla) =====
+    lastRowData = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+    If lastRowData < 2 Then
+        MsgBox "No hay filas de datos en DATA (columna E vacía).", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 4) DATA.D: COMPRA/VENTA -> BUY/SELL
+    Dim raw As String
+    For i = 2 To lastRowData
+        raw = CStr(wsDATA.Cells(i, "D").Value)
+        raw = Replace$(raw, Chr$(160), " ")
+        raw = Replace$(raw, ChrW$(&H202F), " ")
+        raw = UCase$(Trim$(raw))
+        If raw = "COMPRA" Then
+            wsDATA.Cells(i, "D").Value = "BUY"
+        ElseIf raw = "VENTA" Then
+            wsDATA.Cells(i, "D").Value = "SELL"
+        End If
+    Next i
+
+    ' 5) Volcar columnas a CONCILIACIÓN
+    wsCONC.Cells.Clear
+
+    ' Encabezados (A<-E, B<-D, C=Prefijo, D<-K, E=Monto, F<-F [FECHA], G<-G, H<-H)
+    wsCONC.Range("A1").Value = wsDATA.Range("E1").Value
+    wsCONC.Range("B1").Value = wsDATA.Range("D1").Value
+    wsCONC.Range("C1").Value = "Prefijo"
+    wsCONC.Range("D1").Value = wsDATA.Range("K1").Value
+    wsCONC.Range("E1").Value = "Monto"
+    wsCONC.Range("F1").Value = wsDATA.Range("F1").Value    ' *** FECHA ***
+    wsCONC.Range("G1").Value = wsDATA.Range("G1").Value
+    wsCONC.Range("H1").Value = wsDATA.Range("H1").Value
+
+    ' Datos (mismas filas que lastRowData)
+    wsCONC.Range("A2").Resize(lastRowData - 1).Value = wsDATA.Range("E2").Resize(lastRowData - 1).Value
+    wsCONC.Range("B2").Resize(lastRowData - 1).Value = wsDATA.Range("D2").Resize(lastRowData - 1).Value
+    wsCONC.Range("D2").Resize(lastRowData - 1).Value = wsDATA.Range("K2").Resize(lastRowData - 1).Value
+    wsCONC.Range("F2").Resize(lastRowData - 1).Value = wsDATA.Range("F2").Resize(lastRowData - 1).Value  ' *** FECHA ***
+    wsCONC.Range("G2").Resize(lastRowData - 1).Value = wsDATA.Range("G2").Resize(lastRowData - 1).Value
+    wsCONC.Range("H2").Resize(lastRowData - 1).Value = wsDATA.Range("H2").Resize(lastRowData - 1).Value
+
+    ' 6) *** Normalizar FECHA en F: convertir a texto -> 10 chars -> volver a fecha sin hora ***
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    Call NormalizeColumnF_(wsCONC, 2, lastRowConc)
+
+    ' 7) C = primeros 3 caracteres de A
+    For i = 2 To lastRowConc
+        raw = Trim$(CStr(wsCONC.Cells(i, "A").Value))
+        If Len(raw) > 0 Then
+            wsCONC.Cells(i, "C").Value = Left$(raw, 3)
+        End If
+    Next i
+
+    ' 8) E = D * F
+    For i = 2 To lastRowConc
+        If IsNumeric(wsCONC.Cells(i, "D").Value) And IsNumeric(wsCONC.Cells(i, "F").Value) Then
+            wsCONC.Cells(i, "E").Value = wsCONC.Cells(i, "D").Value * wsCONC.Cells(i, "F").Value
+        Else
+            wsCONC.Cells(i, "E").ClearContents
+        End If
+    Next i
+
+    ' 9) FILTRAR por HOY en F (Field:=6)
+    todayDate = Date
+    If lastRowConc >= 2 Then
+        If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+        wsCONC.Range("A1:H" & lastRowConc).AutoFilter Field:=6, Criteria1:=todayDate
+
+        Dim r As Long
+        For r = lastRowConc To 2 Step -1
+            If wsCONC.Rows(r).Hidden Then wsCONC.Rows(r).Delete
+        Next r
+
+        If wsCONC.AutoFilterMode Then wsCONC.AutoFilterMode = False
+    End If
+
+    ' 10) Si no quedó nada (sólo encabezados), NO guardar
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    If lastRowConc < 2 Then
+        MsgBox "No se encontraron operaciones con la fecha actual. No se guardó el archivo", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 11) Guardar
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "BANORTE_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo ErrHandler
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Proceso terminado. Archivo guardado en: " & vbCrLf & fullSave, vbInformation
+    GoTo TidyExit
+
+ErrHandler:
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    MsgBox "Error: " & Err.Number & " - " & Err.Description, vbCritical
+    Exit Sub
+
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+' ============ Helpers ============
+
+Private Sub NormalizeColumnF_(ByVal sh As Worksheet, ByVal firstDataRow As Long, ByVal lastDataRow As Long)
+    Dim i As Long, s As String, tok As String, v As Variant, d As Date
+    If lastDataRow < firstDataRow Then Exit Sub
+
+    ' Formato de salida (solo visual)
+    sh.Range("F" & firstDataRow & ":F" & lastDataRow).NumberFormat = "dd/mm/yyyy"
+
+    For i = firstDataRow To lastDataRow
+        v = sh.Cells(i, "F").Value
+        If IsDate(v) Then
+            ' Si ya es fecha/hora real → deja solo fecha
+            d = CDate(v)
+            sh.Cells(i, "F").Value = DateSerial(Year(d), Month(d), Day(d))
+        Else
+            ' Forzar flujo: TEXTO → limpiar → token antes del primer espacio → 10 chars → fecha
+            s = CStr(v)
+            s = CleanSpacesAndAMPM_(s)
+            s = Trim$(s)
+
+            tok = FirstDateToken_(s)               ' corta antes del primer separador típico (espacio/T/coma)
+            If Len(tok) >= 10 Then tok = Left$(tok, 10)
+
+            If IsDate(tok) Then
+                d = CDate(tok)
+                sh.Cells(i, "F").Value = DateSerial(Year(d), Month(d), Day(d))
+            Else
+                ' Si no es reconocible como fecha, lo dejamos como texto recortado (sin romper)
+                sh.Cells(i, "F").Value = tok
+            End If
+        End If
+    Next i
+End Sub
+
+Private Function CleanSpacesAndAMPM_(ByVal s As String) As String
+    s = Replace$(s, Chr$(160), " ")
+    s = Replace$(s, ChrW$(&H202F), " ")
+    s = Replace$(s, "a. m.", "", , , vbTextCompare)
+    s = Replace$(s, "p. m.", "", , , vbTextCompare)
+    s = Replace$(s, "a.m.", "", , , vbTextCompare)
+    s = Replace$(s, "p.m.", "", , , vbTextCompare)
+    s = Replace$(s, " a m", "", , , vbTextCompare)
+    s = Replace$(s, " p m", "", , , vbTextCompare)
+    CleanSpacesAndAMPM_ = Trim$(s)
+End Function
+
+Private Function FirstDateToken_(ByVal s As String) As String
+    Dim p As Long, cut As Long
+    cut = 0
+    p = InStr(1, s, " ")
+    If p > 0 Then cut = p
+    p = InStr(1, s, "T", vbTextCompare)
+    If p > 0 And (cut = 0 Or p < cut) Then cut = p
+    p = InStr(1, s, ",")
+    If p > 0 And (cut = 0 Or p < cut) Then cut = p
+    If cut > 1 Then
+        FirstDateToken_ = Left$(s, cut - 1)
+    Else
+        FirstDateToken_ = s
+    End If
+End Function
