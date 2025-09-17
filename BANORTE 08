@@ -1,0 +1,17 @@
+    ' 6) === KEEP ONLY TODAY in column F ===
+    Dim todayDate As Date
+    todayDate = Date
+    
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "F").End(xlUp).Row
+    If lastRow >= 2 Then
+        For i = lastRow To 2 Step -1
+            If IsDate(wsDATA.Cells(i, "F").Value) Then
+                If DateValue(wsDATA.Cells(i, "F").Value) <> todayDate Then
+                    wsDATA.Rows(i).Delete
+                End If
+            Else
+                ' Not a date → delete as well
+                wsDATA.Rows(i).Delete
+            End If
+        Next i
+    End If
