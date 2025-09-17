@@ -1,0 +1,177 @@
+Option Explicit
+
+Public Sub JPMORGAN()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet, wsDATA As Worksheet, wsCONC As Worksheet
+    Dim wbNew As Workbook
+    Dim lastRow As Long, lastCol As Long
+    Dim rngSrc As Range
+    Dim i As Long, s As String, p As Long
+    Dim found As Range, gotData As Boolean
+    Dim shellObj As Object
+    Dim saveRoot As String, savePath As String, fileName As String, fullSave As String
+    Dim d As Variant
+    Dim lastRowConc As Long
+    Dim cur As String, bVal As String
+
+    ' Hojas
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 1) Limpia ambas hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Selecciona el archivo de Excel (CRUDO)
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar Archivo de Excel"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abre el archivo e importa los datos a DATA
+    Set wbSrc = Workbooks.Open(fileName:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "No fue posible abrir el archivo de Excel.", vbCritical
+        GoTo TidyExit
+    End If
+
+    ' 4) Copia la primera hoja completa a DATA
+    gotData = False
+    For Each wsSrc In wbSrc.Worksheets
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+        If Not found Is Nothing Then
+            lastRow = found.Row
+            Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                         SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+            lastCol = found.Column
+            Set rngSrc = wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol))
+            rngSrc.Copy wsDATA.Range("A1")
+            gotData = True
+            Exit For
+        End If
+    Next wsSrc
+    wbSrc.Close SaveChanges:=False
+
+    If Not gotData Then
+        MsgBox "El archivo está vacío.", vbExclamation
+        GoTo TidyExit
+    End If
+
+    ' 5) Columna B: dejar solo antes del primer espacio y en MAYÚSCULAS
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "B").End(xlUp).Row
+    For i = 2 To lastRow
+        s = Trim$(CStr(wsDATA.Cells(i, "B").Value))
+        If Len(s) > 0 Then
+            p = InStr(s, " ")
+            If p > 0 Then s = Left$(s, p - 1)
+            wsDATA.Cells(i, "B").Value = UCase$(s)
+        End If
+    Next i
+
+    ' 6) Mantener solo fecha de HOY en G (normaliza y quita hora)
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For i = lastRow To 2 Step -1
+        s = Trim$(CStr(wsDATA.Cells(i, "G").Value))
+        If s = "" Then
+            wsDATA.Rows(i).Delete
+        Else
+            If IsDate(wsDATA.Cells(i, "G").Value) Then
+                d = DateValue(wsDATA.Cells(i, "G").Value)
+            Else
+                p = InStr(s, " ")
+                If p > 0 Then s = Left$(s, p - 1)
+                s = Replace(Replace(s, ".", "/"), "-", "/")
+                On Error Resume Next
+                d = DateValue(CDate(s))
+                On Error GoTo 0
+            End If
+
+            If Not IsDate(d) Then
+                wsDATA.Rows(i).Delete
+            ElseIf d <> Date Then
+                wsDATA.Rows(i).Delete
+            Else
+                wsDATA.Cells(i, "G").Value = d
+            End If
+        End If
+    Next i
+    If wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row >= 2 Then
+        wsDATA.Range("G2:G" & wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row).NumberFormat = "[$-en-US]dd-mmm-yyyy"
+    End If
+
+    ' 7) Copia a CONCILIACIÓN
+    wsCONC.Cells.Clear
+    wsDATA.UsedRange.Copy
+    wsCONC.Range("A1").PasteSpecial xlPasteAll
+    Application.CutCopyMode = False
+
+    ' 8) Si C es DKK / JPY / CNH : D = E / F y voltear B BUY<->SELL
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    For i = 2 To lastRowConc
+        cur = UCase$(Trim$(CStr(wsCONC.Cells(i, "C").Value)))
+        If cur = "DKK" Or cur = "JPY" Or cur = "CNH" Then
+            ' D = E / F (con validaciones)
+            If IsNumeric(wsCONC.Cells(i, "E").Value) And IsNumeric(wsCONC.Cells(i, "F").Value) Then
+                If wsCONC.Cells(i, "F").Value <> 0 Then
+                    wsCONC.Cells(i, "D").Value = wsCONC.Cells(i, "E").Value / wsCONC.Cells(i, "F").Value
+                End If
+            End If
+            ' Voltear BUY/SELL en B
+            bVal = UCase$(Trim$(CStr(wsCONC.Cells(i, "B").Value)))
+            If bVal = "BUY" Then
+                wsCONC.Cells(i, "B").Value = "SELL"
+            ElseIf bVal = "SELL" Then
+                wsCONC.Cells(i, "B").Value = "BUY"
+            End If
+        End If
+    Next i
+
+    ' 9) Guardar copia en VARIOS\INTERMEDIARIOS como JP MORGAN_yyyymmdd.xlsx (Hoja1)
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    fileName = "JP MORGAN_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Proceso terminado. Archivo guardado en:" & vbCrLf & fullSave, vbInformation
+
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
