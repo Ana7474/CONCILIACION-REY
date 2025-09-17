@@ -1,0 +1,7 @@
+    ' 8) === CONCILIACIÓN: Column C = first 3 characters of column A ===
+    lastRow = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    If lastRow >= 2 Then
+        For i = 2 To lastRow
+            wsCONC.Cells(i, "C").Value = Left$(CStr(wsCONC.Cells(i, "A").Value), 3)
+        Next i
+    End If
