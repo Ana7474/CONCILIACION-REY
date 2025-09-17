@@ -1,0 +1,7 @@
+    ' === COLUMN C: First 3 characters of column A ===
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    If lastRow >= 2 Then
+        For i = 2 To lastRow
+            wsDATA.Cells(i, "C").Value = Left$(CStr(wsDATA.Cells(i, "A").Value), 3)
+        Next i
+    End If
