@@ -1,0 +1,11 @@
+    ' --- 3) Open CSV and paste into DATA ---
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy _
+        wsDATA.Range("A1")
+
+    wbCSV.Close SaveChanges:=False
