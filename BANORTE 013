@@ -1,0 +1,32 @@
+    ' 10) === SAVE IN INTERMEDIARIOS ROUTE ===
+    Dim shellObj As Object
+    Dim saveRoot As String, savePath As String
+    Dim wbNew As Workbook, fileName As String, fullSave As String
+
+    ' Use MyDocuments as root, same style as other macros
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+
+    ' Name as INTERMEDIARIOS_yyyymmdd.xlsx
+    fileName = "INTERMEDIARIOS_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    ' Copy CONCILIACIÓN into new file and save
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Archivo guardado en:" & vbCrLf & fullSave, vbInformation
