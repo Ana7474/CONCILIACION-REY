@@ -1,0 +1,11 @@
+    ' 9) === CONCILIACIÓN: Column E = D * F ===
+    lastRow = wsCONC.Cells(wsCONC.Rows.Count, "D").End(xlUp).Row
+    If lastRow >= 2 Then
+        For i = 2 To lastRow
+            If IsNumeric(wsCONC.Cells(i, "D").Value) And IsNumeric(wsCONC.Cells(i, "F").Value) Then
+                wsCONC.Cells(i, "E").Value = wsCONC.Cells(i, "D").Value * wsCONC.Cells(i, "F").Value
+            Else
+                wsCONC.Cells(i, "E").ClearContents   ' blank if either side is not numeric
+            End If
+        Next i
+    End If
