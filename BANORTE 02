@@ -1,0 +1,80 @@
+Option Explicit
+
+Public Sub INT_ImportCSV_ToDATA_Import()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim qt As QueryTable
+    Dim i As Long
+
+    On Error GoTo ErrHandler
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 0) Get sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo ErrHandler
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        GoTo ExitHere
+    End If
+
+    ' 1) Clean both sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar Archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo ExitHere
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Remove any prior QueryTables on DATA (avoid duplicates)
+    On Error Resume Next
+    If wsDATA.QueryTables.Count > 0 Then
+        For i = wsDATA.QueryTables.Count To 1 Step -1
+            wsDATA.QueryTables(i).Delete
+        Next i
+    End If
+    On Error GoTo ErrHandler
+
+    ' 4) Import CSV directly into DATA (Excel's text/CSV parser)
+    Set qt = wsDATA.QueryTables.Add(Connection:="TEXT;" & filePath, Destination:=wsDATA.Range("A1"))
+    With qt
+        .TextFilePlatform = 65001            ' UTF-8
+        .TextFileStartRow = 1
+        .TextFileParseType = xlDelimited
+        .TextFileTabDelimiter = False
+        .TextFileCommaDelimiter = True       ' handle comma CSV
+        .TextFileOtherDelimiter = ";"        ' also handle semicolon CSV
+        .TextFileConsecutiveDelimiter = False
+        .TextFileQualifier = xlTextQualifierDoubleQuote
+        .TextFileTrailingMinusNumbers = True
+        .TextFileDecimalSeparator = "."      ' adjust if needed
+        .TextFileThousandsSeparator = ","
+        .PreserveFormatting = True
+        .AdjustColumnWidth = True
+        .RefreshStyle = xlOverwriteCells
+        .SaveData = True
+        .Refresh BackgroundQuery:=False      ' synchronous import
+    End With
+
+    MsgBox "CSV importado correctamente en DATA.", vbInformation
+    GoTo ExitHere
+
+ErrHandler:
+    MsgBox "Error en INT_ImportCSV_ToDATA_Import: " & Err.Description, vbCritical
+
+ExitHere:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
