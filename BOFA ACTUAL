@@ -1,0 +1,154 @@
+Public Sub BOFA()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim wbNew As Workbook
+    Dim lastRow As Long, lastCol As Long, lastRowData As Long
+    Dim rG As Range, rH As Range, c As Range
+    Dim s As String, i As Long
+    Dim todayDate As Date
+    Dim saveRoot As String, savePath As String, fileName As String, fullSave As String
+    Dim shellObj As Object
+    Dim valB As String
+
+    todayDate = Date  ' Día actual
+
+    ' Hojas
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    On Error GoTo 0
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+
+    ' 1) Limpia ambas hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Selecciona el archivo CSV (CRUDO)
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar Archivo csv"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then Exit Sub
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Abre el archivo e importa los datos a DATA
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+    wbCSV.Close SaveChanges:=False
+
+    ' 3.5) Elimina filas con "CANCELED" (o "CANCELLED") en la columna B, de abajo hacia arriba
+    lastRowData = wsDATA.Cells(wsDATA.Rows.Count, "B").End(xlUp).Row
+    For i = lastRowData To 2 Step -1
+        valB = UCase$(Trim$(CStr(wsDATA.Cells(i, "B").Value)))
+        If valB = "CANCELED" Or valB = "CANCELLED" Then
+            wsDATA.Rows(i).Delete
+        End If
+    Next i
+
+    ' 4) Procesa la información en CONCILIACIÓN
+    lastRowData = wsDATA.Cells(wsDATA.Rows.Count, "E").End(xlUp).Row
+
+    wsDATA.Range("E1:E" & lastRowData).Copy: wsCONC.Range("A1").PasteSpecial xlPasteValues ' E -> A
+    wsDATA.Range("D1:D" & lastRowData).Copy: wsCONC.Range("B1").PasteSpecial xlPasteValues ' D -> B
+    wsDATA.Range("C1:C" & lastRowData).Copy: wsCONC.Range("C1").PasteSpecial xlPasteValues ' C -> C
+    wsDATA.Range("F1:F" & lastRowData).Copy: wsCONC.Range("D1").PasteSpecial xlPasteValues ' F -> D
+    wsDATA.Range("G1:G" & lastRowData).Copy: wsCONC.Range("E1").PasteSpecial xlPasteValues ' G -> E
+    wsDATA.Range("H1:H" & lastRowData).Copy: wsCONC.Range("F1").PasteSpecial xlPasteValues ' H -> F
+    wsDATA.Range("J1:J" & lastRowData).Copy: wsCONC.Range("G1").PasteSpecial xlPasteValues ' J -> G
+    wsDATA.Range("L1:L" & lastRowData).Copy: wsCONC.Range("H1").PasteSpecial xlPasteValues ' L -> H
+    Application.CutCopyMode = False
+
+    ' 5) C + A
+    For i = 2 To lastRowData
+        If wsCONC.Cells(i, "C").Value <> "" And wsCONC.Cells(i, "A").Value <> "" Then
+            wsCONC.Cells(i, "A").Value = wsCONC.Cells(i, "C").Value & wsCONC.Cells(i, "A").Value
+        End If
+    Next i
+
+    ' 6) Formato a números
+    wsCONC.Range("D2:D" & lastRowData).NumberFormat = "#,##0"
+    wsCONC.Range("E2:E" & lastRowData).NumberFormat = "#,##0"
+
+    ' 7) Fechas a formato americano
+    If lastRowData >= 2 Then
+        Dim lastRowConc As Long
+        lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+        Set rG = wsCONC.Range("G2:G" & lastRowConc)
+        Set rH = wsCONC.Range("H2:H" & lastRowConc)
+
+        For Each c In rG.Cells
+            If Len(c.Value2) > 0 And Not IsDate(c.Value) Then
+                s = Trim(CStr(c.Value))
+                s = Replace(Replace(s, ".", "/"), "-", "/")
+                On Error Resume Next
+                c.Value = CDate(s)
+                On Error GoTo 0
+            End If
+        Next c
+
+        For Each c In rH.Cells
+            If Len(c.Value2) > 0 And Not IsDate(c.Value) Then
+                s = Trim(CStr(c.Value))
+                s = Replace(Replace(s, ".", "/"), "-", "/")
+                On Error Resume Next
+                c.Value = CDate(s)
+                On Error GoTo 0
+            End If
+        Next c
+
+        rG.NumberFormat = "[$-en-US]dd-mmm-yy"
+        rH.NumberFormat = "[$-en-US]dd-mmm-yy"
+    End If
+
+    ' 8) Elimina todo lo que no sea fecha de hoy (columna G)
+    Dim lastAfterCopy As Long
+    lastAfterCopy = wsCONC.Cells(wsCONC.Rows.Count, "G").End(xlUp).Row
+    For i = lastAfterCopy To 2 Step -1
+        If IsDate(wsCONC.Cells(i, "G").Value) Then
+            If DateValue(wsCONC.Cells(i, "G").Value) <> todayDate Then
+                wsCONC.Rows(i).Delete
+            End If
+        Else
+            wsCONC.Rows(i).Delete
+        End If
+    Next i
+
+
+    ' 9) Define la ruta
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        Exit Sub
+    End If
+
+    ' Construye el nombre
+    fileName = "BOFA_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+
+    ' Copia la hoja en un Excel nuevo
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+
+    MsgBox "Proceso terminado. Archivo guardado en:" & vbCrLf & fullSave, vbInformation
+End Sub
