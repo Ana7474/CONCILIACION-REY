@@ -1,0 +1,137 @@
+Option Explicit
+
+Public Sub INT_ImportCSV_ToDATA_Simple_FixF()
+    Dim fd As FileDialog, filePath As String
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim wbTemp As Workbook, wsTemp As Worksheet
+    Dim lastRow As Long, i As Long
+    Dim s As String, token As String, t10 As String
+    Dim d As Date, y As Long, m As Long, dd As Long
+    Dim ok As Boolean, p() As String, pos As Long
+
+    On Error GoTo ErrHandler
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' Sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo ErrHandler
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        GoTo TidyExit
+    End If
+
+    ' 1) Clean both sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Pick CSV/TXT
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar archivo CSV / TXT"
+        .Filters.Clear
+        .Filters.Add "Text/CSV", "*.csv;*.txt"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Open with parser and bring everything
+    Application.DisplayAlerts = False
+    Workbooks.OpenText _
+        Filename:=filePath, _
+        DataType:=xlDelimited, _
+        Comma:=True, Semicolon:=True, Tab:=True, _
+        DecimalSeparator:=".", ThousandsSeparator:=",", _
+        Local:=True
+    Application.DisplayAlerts = True
+
+    Set wbTemp = ActiveWorkbook
+    Set wsTemp = wbTemp.Sheets(1)
+    wsDATA.Cells.Clear
+    wsTemp.UsedRange.Copy Destination:=wsDATA.Range("A1")
+    wbTemp.Close SaveChanges:=False
+    wsDATA.Columns.AutoFit
+
+    ' 4) === FIX DATES IN COLUMN F ===
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "F").End(xlUp).Row
+    If lastRow >= 2 Then
+        For i = 2 To lastRow
+            s = CStr(wsDATA.Cells(i, "F").Value)
+
+            ' Normalize whitespace & AM/PM
+            s = Replace(s, Chr$(160), " ")
+            s = Replace(s, "a. m.", "", , , vbTextCompare)
+            s = Replace(s, "p. m.", "", , , vbTextCompare)
+            s = Replace(s, "AM", "", , , vbTextCompare)
+            s = Replace(s, "PM", "", , , vbTextCompare)
+            s = Trim$(s)
+
+            ' Keep only before first space (drops time/tokens)
+            pos = InStr(s, " ")
+            If pos > 0 Then
+                token = Left$(s, pos - 1)
+            Else
+                token = s
+            End If
+
+            ' Only first 10 chars; unify separators
+            If Len(token) >= 10 Then
+                t10 = Left$(token, 10)
+            Else
+                t10 = token
+            End If
+            t10 = Replace(Replace(t10, "-", "/"), ".", "/")
+
+            ok = False
+
+            ' yyyy/mm/dd
+            If t10 Like "####/*/*" Then
+                p = Split(t10, "/")
+                If UBound(p) = 2 Then
+                    y = Val(p(0)): m = Val(p(1)): dd = Val(p(2))
+                    If y > 0 And m >= 1 And m <= 12 And dd >= 1 And dd <= 31 Then
+                        d = DateSerial(y, m, dd): ok = True
+                    End If
+                End If
+            ' dd/mm/yyyy
+            ElseIf t10 Like "##/*/####" Or t10 Like "#/*/####" Then
+                p = Split(t10, "/")
+                If UBound(p) = 2 Then
+                    dd = Val(p(0)): m = Val(p(1)): y = Val(p(2))
+                    If y > 0 And m >= 1 And m <= 12 And dd >= 1 And dd <= 31 Then
+                        d = DateSerial(y, m, dd): ok = True
+                    End If
+                End If
+            ' numeric serial fallback
+            ElseIf IsNumeric(wsDATA.Cells(i, "F").Value2) Then
+                d = CDate(wsDATA.Cells(i, "F").Value2): ok = True
+            ' last resort
+            ElseIf IsDate(t10) Then
+                d = DateValue(t10): ok = True
+            End If
+
+            If ok Then
+                wsDATA.Cells(i, "F").Value = d
+            Else
+                ' If parsing fails, keep the first 10 chars as text (at least trims time)
+                wsDATA.Cells(i, "F").Value = t10
+            End If
+        Next i
+
+        ' Final display format
+        wsDATA.Range("F2:F" & lastRow).NumberFormat = "dd/mm/yyyy"
+    End If
+
+    MsgBox "Importado y normalizado F → dd/mm/yyyy.", vbInformation
+    GoTo TidyExit
+
+ErrHandler:
+    MsgBox "Error en INT_ImportCSV_ToDATA_Simple_FixF: " & Err.Description, vbCritical
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
