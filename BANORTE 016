@@ -1,0 +1,32 @@
+' === SAVE as BANORTE_yyyymmdd.xlsx in ...\VARIOS\INTERMEDIARIOS\ ===
+Dim shellObj As Object
+Dim saveRoot As String, savePath As String
+Dim fileName As String, fullSave As String
+Dim wbNew As Workbook
+
+Set shellObj = CreateObject("WScript.Shell")
+saveRoot = shellObj.SpecialFolders("MyDocuments")              ' e.g. C:\Users\...\Documents
+savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"                ' <-- backslash FIX
+
+' Ensure folder exists (creates chain if needed)
+If Dir(savePath, vbDirectory) = "" Then MkDir savePath
+
+fileName = "BANORTE_" & Format(Date, "yyyymmdd") & ".xlsx"
+fullSave = savePath & fileName
+
+' If a file with the same name is already there, delete it to avoid prompts
+If Dir(fullSave, vbNormal) <> "" Then Kill fullSave
+
+' Copy CONCILIACIÓN into a new workbook and save
+wsCONC.Copy
+Set wbNew = ActiveWorkbook
+On Error Resume Next
+wbNew.Sheets(1).Name = "Hoja1"
+On Error GoTo 0
+
+Application.DisplayAlerts = False
+wbNew.SaveAs Filename:=fullSave, FileFormat:=xlOpenXMLWorkbook
+Application.DisplayAlerts = True
+wbNew.Close SaveChanges:=False
+
+MsgBox "Proceso terminado. Archivo guardado en:" & vbCrLf & fullSave, vbInformationv
