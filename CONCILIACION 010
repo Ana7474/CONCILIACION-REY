@@ -1,0 +1,7 @@
+    ' 7) Map columns — copy WHOLE COLUMN (including headers), as-is
+    wsDATA.Columns("D").Copy wsCONC.Columns("A")   ' DATA D -> CONC A
+    wsDATA.Columns("C").Copy wsCONC.Columns("B")   ' DATA C -> CONC B
+    wsDATA.Columns("J").Copy wsCONC.Columns("D")   ' DATA J -> CONC D
+    wsDATA.Columns("E").Copy wsCONC.Columns("F")   ' DATA E -> CONC F
+    wsDATA.Columns("F").Copy wsCONC.Columns("G")   ' DATA F -> CONC G
+    wsDATA.Columns("G").Copy wsCONC.Columns("H")   ' DATA G -> CONC H
