@@ -1,0 +1,31 @@
+' 5) Si el par es USDCAD / USDJPY / USDEUR / EURUSD / CADUSD / JPYUSD:
+'    voltear lado en B y swap D <-> E
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+If lastRowConc >= 2 Then
+    Dim pairTxt As String, pairClean As String, side As String, tmpVal As Variant
+    For i = 2 To lastRowConc
+        ' Leer par y normalizar (quitar espacios, '/', '-'; mayúsculas)
+        pairTxt = CStr(wsCONC.Cells(i, "A").Value)
+        pairClean = UCase$(pairTxt)
+        pairClean = Replace(pairClean, " ", "")
+        pairClean = Replace(pairClean, "/", "")
+        pairClean = Replace(pairClean, "-", "")
+
+        Select Case pairClean
+            Case "USDCAD", "USDJPY", "USDEUR", "EURUSD", "CADUSD", "JPYUSD"
+                ' --- Flip B (BUY <-> SELL, también variantes en español) ---
+                side = UCase$(WorksheetFunction.Trim(CStr(wsCONC.Cells(i, "B").Value)))
+                Select Case side
+                    Case "BUY", "COMPRÓ", "COMPRO"
+                        wsCONC.Cells(i, "B").Value = "Sell"
+                    Case "SELL", "VENDIÓ", "VENDIO"
+                        wsCONC.Cells(i, "B").Value = "Buy"
+                End Select
+
+                ' --- Swap D y E ---
+                tmpVal = wsCONC.Cells(i, "D").Value
+                wsCONC.Cells(i, "D").Value = wsCONC.Cells(i, "E").Value
+                wsCONC.Cells(i, "E").Value = tmpVal
+        End Select
+    Next i
+End If
