@@ -1,0 +1,123 @@
+Option Explicit
+
+Public Sub INT_ImportCSV_ToDATA_Import()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim qt As QueryTable
+    Dim i As Long
+    Dim wbTemp As Workbook, wsTemp As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim ok As Boolean
+
+    On Error GoTo ErrHandler
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' 0) Get sheets
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo ErrHandler
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        GoTo ExitHere
+    End If
+
+    ' 1) Clean both sheets
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' 2) Ask for CSV
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar Archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo ExitHere
+        filePath = .SelectedItems(1)
+    End With
+
+    ' 3) Remove any prior QueryTables on DATA (avoid duplicates)
+    On Error Resume Next
+    If wsDATA.QueryTables.Count > 0 Then
+        For i = wsDATA.QueryTables.Count To 1 Step -1
+            wsDATA.QueryTables(i).Delete
+        Next i
+    End If
+    On Error GoTo ErrHandler
+
+    ' 4) Import CSV directly into DATA via QueryTable
+    ok = False
+    On Error Resume Next
+    Set qt = wsDATA.QueryTables.Add(Connection:="TEXT;" & filePath, Destination:=wsDATA.Range("A1"))
+    If Not qt Is Nothing Then
+        With qt
+            ' DO NOT set .TextFilePlatform = 65001 here (invalid). Let Excel infer.
+            .TextFileStartRow = 1
+            .TextFileParseType = xlDelimited
+            .TextFileTextQualifier = xlTextQualifierDoubleQuote
+            .TextFileCommaDelimiter = True
+            .TextFileSemicolonDelimiter = True
+            .TextFileConsecutiveDelimiter = False
+            .TextFileDecimalSeparator = "."
+            .TextFileThousandsSeparator = ","
+            .PreserveFormatting = True
+            .AdjustColumnWidth = True
+            .RefreshStyle = xlOverwriteCells
+            .SaveData = True
+            .Refresh BackgroundQuery:=False    ' synchronous
+        End With
+        ok = True
+    End If
+    On Error GoTo ErrHandler
+
+    If ok Then
+        MsgBox "CSV importado correctamente en DATA (QueryTable).", vbInformation
+        GoTo ExitHere
+    End If
+
+    ' 5) FALLBACK: OpenText → copy UsedRange → close temp
+Fallback_OpenText:
+    On Error Resume Next
+    Set wbTemp = Workbooks.OpenText( _
+        Filename:=filePath, _
+        DataType:=xlDelimited, _
+        Comma:=True, _
+        Semicolon:=True, _
+        DecimalSeparator:=".", _
+        ThousandsSeparator:="," _
+    )
+    ' Workbooks.OpenText doesn’t return a Workbook object; open result is ActiveWorkbook
+    Set wbTemp = ActiveWorkbook
+    On Error GoTo ErrHandler
+
+    If wbTemp Is Nothing Then
+        MsgBox "No fue posible importar el CSV (QueryTable y OpenText fallaron).", vbCritical
+        GoTo ExitHere
+    End If
+
+    Set wsTemp = wbTemp.Sheets(1)
+    lastRow = wsTemp.Cells(wsTemp.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsTemp.Cells(1, wsTemp.Columns.Count).End(xlToLeft).Column
+
+    wsDATA.Cells.Clear
+    wsTemp.Range(wsTemp.Cells(1, 1), wsTemp.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+
+    Application.DisplayAlerts = False
+    wbTemp.Close SaveChanges:=False
+    Application.DisplayAlerts = True
+
+    MsgBox "CSV importado correctamente en DATA (OpenText fallback).", vbInformation
+    GoTo ExitHere
+
+ErrHandler:
+    MsgBox "Error en INT_ImportCSV_ToDATA_Import: " & Err.Description, vbCritical
+
+ExitHere:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
