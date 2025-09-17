@@ -1,0 +1,107 @@
+Option Explicit
+
+Public Sub INT_FixDates_ColF()
+    Dim ws As Worksheet
+    Dim lastRow As Long, i As Long
+    Dim s As String, token As String
+    Dim d As Date, ok As Boolean
+
+    On Error GoTo ErrHandler
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' Work on DATA (fallback to CONCILIACIÓN if DATA not found)
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("DATA")
+    If ws Is Nothing Then Set ws = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If ws Is Nothing Then Set ws = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo ErrHandler
+    If ws Is Nothing Then
+        MsgBox "No se encontró la hoja DATA / CONCILIACIÓN.", vbCritical
+        GoTo TidyExit
+    End If
+
+    lastRow = ws.Cells(ws.Rows.Count, "F").End(xlUp).Row
+    If lastRow < 2 Then GoTo TidyExit
+
+    For i = 2 To lastRow
+        s = CStr(ws.Cells(i, "F").Value)
+
+        ' Normalize weird spaces and AM/PM text
+        s = Replace(s, Chr$(160), " ")                   ' NBSP to space
+        s = Replace(s, "a. m.", "", , , vbTextCompare)
+        s = Replace(s, "p. m.", "", , , vbTextCompare)
+        s = Replace(s, "AM", "", , , vbTextCompare)
+        s = Replace(s, "PM", "", , , vbTextCompare)
+        s = Trim$(s)
+
+        ' Keep only text before the first space (drops time / trailing tokens)
+        If InStr(s, " ") > 0 Then
+            token = Left$(s, InStr(s, " ") - 1)
+        Else
+            token = s
+        End If
+        token = Replace(token, "-", "/")                 ' unify separators
+
+        ' Try to parse robustly
+        ok = TryParseDateToken(token, d)
+        If Not ok And IsDate(token) Then
+            ' Fallback if Excel can parse directly
+            d = DateValue(token)
+            ok = True
+        End If
+
+        If ok Then
+            ws.Cells(i, "F").Value = d
+        Else
+            ' If it can't be parsed, blank it or leave as-is:
+            ' ws.Cells(i, "F").ClearContents
+            ' (Comment out previous line if you prefer to keep original)
+        End If
+    Next i
+
+    ' Final format as dd/mm/yyyy
+    ws.Range("F2:F" & lastRow).NumberFormat = "dd/mm/yyyy"
+
+TidyExit:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Error en INT_FixDates_ColF: " & Err.Description, vbCritical
+    Resume TidyExit
+End Sub
+
+' Attempts to parse known tokens into Date (handles dd/mm/yyyy and yyyy/mm/dd)
+Private Function TryParseDateToken(ByVal token As String, ByRef outDate As Date) As Boolean
+    Dim p() As String
+    On Error GoTo Fail
+
+    ' yyyy/mm/dd
+    If token Like "####/*/*" Then
+        p = Split(token, "/")
+        If UBound(p) = 2 Then
+            outDate = DateSerial(CLng(p(0)), CLng(p(1)), CLng(p(2)))
+            TryParseDateToken = True
+            Exit Function
+        End If
+    End If
+
+    ' dd/mm/yyyy
+    If token Like "##/*/####" Or token Like "#/*/####" Then
+        p = Split(token, "/")
+        If UBound(p) = 2 Then
+            outDate = DateSerial(CLng(p(2)), CLng(p(1)), CLng(p(0)))
+            TryParseDateToken = True
+            Exit Function
+        End If
+    End If
+
+    ' If it reaches here, not matched
+    TryParseDateToken = False
+    Exit Function
+
+Fail:
+    TryParseDateToken = False
+End Function
