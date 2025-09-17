@@ -1,0 +1,12 @@
+    ' 5) === TRANSLATE C (after headers) ===
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "C").End(xlUp).Row
+    If lastRow >= 2 Then
+        For i = 2 To lastRow
+            Select Case UCase$(Trim$(CStr(wsDATA.Cells(i, "C").Value)))
+                Case "VENTA"
+                    wsDATA.Cells(i, "C").Value = "SELL"
+                Case "COMPRA"
+                    wsDATA.Cells(i, "C").Value = "BUY"
+            End Select
+        Next i
+    End If
