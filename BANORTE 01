@@ -1,0 +1,64 @@
+Option Explicit
+
+Public Sub INT_ImportCSV_ToDATA()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbCSV As Workbook, wsCSV As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim lastRow As Long, lastCol As Long
+
+    On Error GoTo ErrHandler
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+
+    ' --- 0) Get sheets ---
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION") ' fallback
+    On Error GoTo ErrHandler
+
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        GoTo ExitHere
+    End If
+
+    ' --- 1) Clean both sheets ---
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+
+    ' --- 2) Ask for CSV ---
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Seleccionar Archivo CSV"
+        .Filters.Clear
+        .Filters.Add "CSV Files", "*.csv"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo ExitHere
+        filePath = .SelectedItems(1)
+    End With
+
+    ' --- 3) Open CSV and paste into DATA ---
+    Set wbCSV = Workbooks.Open(filePath)
+    Set wsCSV = wbCSV.Sheets(1)
+
+    lastRow = wsCSV.Cells(wsCSV.Rows.Count, 1).End(xlUp).Row
+    lastCol = wsCSV.Cells(1, wsCSV.Columns.Count).End(xlToLeft).Column
+
+    wsCSV.Range(wsCSV.Cells(1, 1), wsCSV.Cells(lastRow, lastCol)).Copy
+    wsDATA.Range("A1").PasteSpecial xlPasteValues
+    wsDATA.Range("A1").PasteSpecial xlPasteFormats
+    Application.CutCopyMode = False
+
+    wbCSV.Close SaveChanges:=False
+
+    MsgBox "CSV importado a DATA. Filas: " & lastRow & " | Columnas: " & lastCol, vbInformation
+    GoTo ExitHere
+
+ErrHandler:
+    MsgBox "Error en INT_ImportCSV_ToDATA: " & Err.Description, vbCritical
+
+ExitHere:
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
