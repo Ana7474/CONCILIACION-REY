@@ -1,0 +1,31 @@
+' 10) Guardar CONCILIACIÓN como nuevo archivo en INTERMEDIARIOS CASA DE BOLSA
+Dim shellObj As Object, saveRoot As String, savePath As String
+Dim fileName As String, fullSave As String
+Dim wbNew As Workbook
+
+Set shellObj = CreateObject("WScript.Shell")
+saveRoot = shellObj.SpecialFolders("MyDocuments")
+savePath = saveRoot & "\VARIOS\INTERMEDIARIOS CASA DE BOLSA\"
+
+' Crea la carpeta si no existe
+If Dir(savePath, vbDirectory) = "" Then MkDir savePath
+
+fileName = "BNP_" & Format(Date, "yyyymmdd") & ".xlsx"
+fullSave = savePath & fileName
+
+' Si ya existe, lo eliminamos para evitar prompts
+If Dir(fullSave, vbNormal) <> "" Then Kill fullSave
+
+' Guardar CONCILIACIÓN
+wsCONC.Copy
+Set wbNew = ActiveWorkbook
+On Error Resume Next
+wbNew.Sheets(1).Name = "Hoja1"
+On Error GoTo 0
+
+Application.DisplayAlerts = False
+wbNew.SaveAs Filename:=fullSave, FileFormat:=xlOpenXMLWorkbook
+Application.DisplayAlerts = True
+wbNew.Close SaveChanges:=False
+
+MsgBox "Proceso terminado. Archivo guardado en:" & vbCrLf & fullSave, vbInformation
