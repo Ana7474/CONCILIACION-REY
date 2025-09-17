@@ -1,0 +1,31 @@
+    ' 7) === COPY FROM DATA TO CONCILIACIÓN ===
+    Dim lastRowData As Long
+    wsCONC.Cells.Clear
+    
+    lastRowData = wsDATA.Cells(wsDATA.Rows.Count, "D").End(xlUp).Row
+    If lastRowData >= 2 Then
+        ' D -> A
+        wsDATA.Range("D2:D" & lastRowData).Copy
+        wsCONC.Range("A2").PasteSpecial xlPasteValues
+        
+        ' C -> B
+        wsDATA.Range("C2:C" & lastRowData).Copy
+        wsCONC.Range("B2").PasteSpecial xlPasteValues
+        
+        ' J -> D
+        wsDATA.Range("J2:J" & lastRowData).Copy
+        wsCONC.Range("D2").PasteSpecial xlPasteValues
+        
+        ' E -> F
+        wsDATA.Range("E2:E" & lastRowData).Copy
+        wsCONC.Range("F2").PasteSpecial xlPasteValues
+        
+        ' F -> G
+        wsDATA.Range("F2:F" & lastRowData).Copy
+        wsCONC.Range("G2").PasteSpecial xlPasteValues
+        
+        ' G -> H
+        wsDATA.Range("G2:G" & lastRowData).Copy
+        wsCONC.Range("H2").PasteSpecial xlPasteValues
+    End If
+    Application.CutCopyMode = False
