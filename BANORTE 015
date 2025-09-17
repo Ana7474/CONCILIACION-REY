@@ -1,0 +1,59 @@
+' 10) === SAVE as BANORTE_yyyymmdd.xlsx in ...\VARIOS\INTERMEDIARIOS\ ===
+Dim shellObj As Object
+Dim saveRoot As String, savePath As String
+Dim fileName As String, fullSave As String
+Dim wbNew As Workbook
+
+On Error GoTo SaveErr
+
+Set shellObj = CreateObject("WScript.Shell")
+saveRoot = shellObj.SpecialFolders("MyDocuments")          ' e.g. C:\Users\...\Documents
+savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"            ' <-- ensure leading backslash
+
+' Ensure folder exists (creates the whole chain if needed)
+EnsureFolderExists savePath
+
+fileName = "BANORTE_" & Format(Date, "yyyymmdd") & ".xlsx"
+fullSave = savePath & fileName
+
+' Show where we’re saving (helps confirm the route)
+MsgBox "Saving to:" & vbCrLf & fullSave, vbInformation
+
+' Copy CONCILIACIÓN to a new workbook and save
+wsCONC.Copy
+Set wbNew = ActiveWorkbook
+On Error Resume Next
+wbNew.Sheets(1).Name = "Hoja1"
+On Error GoTo SaveErr
+
+Application.DisplayAlerts = False
+wbNew.SaveAs Filename:=fullSave, FileFormat:=xlOpenXMLWorkbook
+Application.DisplayAlerts = True
+wbNew.Close SaveChanges:=False
+
+' Verify file exists
+If Dir(fullSave, vbNormal) = "" Then
+    MsgBox "Save completed but file not found on disk:" & vbCrLf & fullSave, vbExclamation
+Else
+    MsgBox "Proceso terminado. Archivo guardado en:" & vbCrLf & fullSave, vbInformation
+End If
+
+GoTo SaveDone
+
+SaveErr:
+    Application.DisplayAlerts = True
+    MsgBox "Error al guardar: " & Err.Number & " - " & Err.Description, vbCritical
+
+SaveDone:
+
+Private Sub EnsureFolderExists(ByVal pathStr As String)
+    Dim parts() As String, i As Long, cur As String
+    parts = Split(pathStr, "\")
+    cur = parts(0)  ' drive like "C:" or "" for UNC
+    For i = 1 To UBound(parts)
+        cur = cur & "\" & parts(i)
+        If Len(cur) > 2 Then
+            If Dir(cur, vbDirectory) = "" Then MkDir cur
+        End If
+    Next i
+End Sub
