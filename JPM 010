@@ -1,0 +1,25 @@
+' 8) Si C es DKK / JPY / CNH / CAD / EUR : D = E / F y voltear B BUY<->SELL
+lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+For i = 2 To lastRowConc
+    cur = UCase$(Trim$(CStr(wsCONC.Cells(i, "C").Value)))
+    cur = Replace(cur, Chr$(160), " ")  ' NBSP → normal space
+    cur = Trim$(cur)
+
+    Select Case cur
+        Case "DKK", "JPY", "CNH", "CAD", "EUR"
+            ' D = E / F (con validaciones)
+            If IsNumeric(wsCONC.Cells(i, "E").Value) And IsNumeric(wsCONC.Cells(i, "F").Value) Then
+                If wsCONC.Cells(i, "F").Value <> 0 Then
+                    wsCONC.Cells(i, "D").Value = wsCONC.Cells(i, "E").Value / wsCONC.Cells(i, "F").Value
+                End If
+            End If
+
+            ' Voltear BUY/SELL en B
+            bVal = UCase$(Trim$(CStr(wsCONC.Cells(i, "B").Value)))
+            If bVal = "BUY" Then
+                wsCONC.Cells(i, "B").Value = "SELL"
+            ElseIf bVal = "SELL" Then
+                wsCONC.Cells(i, "B").Value = "BUY"
+            End If
+    End Select
+Next i
