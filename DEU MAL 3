@@ -1,0 +1,247 @@
+Option Explicit
+
+Public Sub DEUTSCHE()
+    Dim fd As FileDialog
+    Dim filePath As String
+    Dim wbSrc As Workbook
+    Dim wsSrc As Worksheet
+    Dim wsDATA As Worksheet, wsCONC As Worksheet
+    Dim found As Range
+    Dim lastRow As Long, lastCol As Long
+    Dim gotData As Boolean
+    Dim r As Long
+    Dim valA As String, norm As String
+    Dim initLast As Long, newRow As Long
+    Dim lastRowBase As Long, lastRowConc As Long
+    Dim shellObj As Object, saveRoot As String, savePath As String
+    Dim fileName As String, fullSave As String
+    Dim wbNew As Workbook
+    Dim todayDate As Date
+    
+    On Error Resume Next
+    Set wsDATA = ThisWorkbook.Sheets("DATA")
+    Set wsCONC = ThisWorkbook.Sheets("CONCILIACIÓN")
+    If wsCONC Is Nothing Then Set wsCONC = ThisWorkbook.Sheets("CONCILIACION")
+    On Error GoTo 0
+    
+    If wsDATA Is Nothing Or wsCONC Is Nothing Then
+        MsgBox "No se encontraron las hojas (DATA / CONCILIACIÓN).", vbCritical
+        Exit Sub
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    
+    todayDate = Date
+    
+    ' 1) Limpia las hojas
+    wsDATA.Cells.Clear
+    wsCONC.Cells.Clear
+    
+    ' 2) Selecciona el archivo de Excel
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    With fd
+        .Title = "Select an Excel file"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xlsm;*.xls;*.xlsb"
+        .AllowMultiSelect = False
+        If .Show <> -1 Then GoTo TidyExit
+        filePath = .SelectedItems(1)
+    End With
+    
+    ' 3) Abre y copia la primera hoja → DATA!A1
+    Set wbSrc = Workbooks.Open(fileName:=filePath)
+    If wbSrc Is Nothing Then
+        MsgBox "No fue posible abrir el Excel", vbCritical
+        GoTo TidyExit
+    End If
+    
+    Set wsSrc = wbSrc.Worksheets(1)
+    gotData = False
+    
+    Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If Not found Is Nothing Then
+        lastRow = found.Row
+        Set found = wsSrc.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                     SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, MatchCase:=False)
+        lastCol = found.Column
+        
+        wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(lastRow, lastCol)).Copy wsDATA.Range("A1")
+        gotData = True
+    End If
+    
+    wbSrc.Close SaveChanges:=False
+    
+    If Not gotData Then
+        MsgBox "No se encontró datos", vbExclamation
+        GoTo TidyExit
+    End If
+    
+    ' 4) Elimina filas con Canceled/Cancelled en A
+    lastRow = wsDATA.Cells(wsDATA.Rows.Count, "A").End(xlUp).Row
+    For r = lastRow To 2 Step -1
+        valA = CStr(wsDATA.Cells(r, "A").Value)
+        norm = UCase$(Trim$(valA))
+        norm = Replace(norm, "CANCELLED", "CANCELED")
+        If norm = "CANCELED" Then wsDATA.Rows(r).Delete
+    Next r
+    
+    ' 5) Manejo de SWAP en columna H (solo filas originales)
+    '    - Inserta una NUEVA fila al final para la segunda pierna
+    '    - NUEVO: segunda pierna usa W→D, X→E y sentido por X
+    initLast = LastRowReliable(wsDATA)  ' snapshot de filas originales
+    If initLast >= 2 Then
+        For r = 2 To initLast
+            If UCase$(Trim$(NormalizeSpaces(CStr(wsDATA.Cells(r, "H").Value)))) = "SWAP" Then
+                newRow = LastRowReliable(wsDATA) + 1
+                
+                ' Copiar campos base
+                wsDATA.Cells(newRow, "E").Value = wsDATA.Cells(r, "E").Value     ' fecha (para CONC:G)
+                wsDATA.Cells(newRow, "I").Value = wsDATA.Cells(r, "I").Value     ' instrumento (para CONC:A)
+                wsDATA.Cells(newRow, "K").Value = wsDATA.Cells(r, "K").Value     ' ccy (para CONC:C)
+                wsDATA.Cells(newRow, "O").Value = wsDATA.Cells(r, "O").Value     ' ref (para CONC:H)
+                
+                ' Sentido (fila original a partir de J)
+                If Val(wsDATA.Cells(r, "J").Value) < 0 Then
+                    wsDATA.Cells(r, "G").Value = "Sell"
+                ElseIf Val(wsDATA.Cells(r, "J").Value) > 0 Then
+                    wsDATA.Cells(r, "G").Value = "Buy"
+                End If
+                
+                ' NUEVO: Sentido (nueva fila) a partir de X (antes usaba V)
+                If Val(wsDATA.Cells(r, "X").Value) < 0 Then
+                    wsDATA.Cells(newRow, "G").Value = "Sell"
+                ElseIf Val(wsDATA.Cells(r, "X").Value) > 0 Then
+                    wsDATA.Cells(newRow, "G").Value = "Buy"
+                End If
+                
+                ' NUEVO: Montos para segunda pierna
+                ' CONC:D ← DATA:J  → tomar de W
+                wsDATA.Cells(newRow, "J").Value = wsDATA.Cells(r, "W").Value
+                ' CONC:E ← DATA:N  → tomar de X
+                wsDATA.Cells(newRow, "N").Value = wsDATA.Cells(r, "X").Value
+                ' CONC:F ← DATA:M  → dejar vacío; se calculará como Abs(E/D)
+                wsDATA.Cells(newRow, "M").ClearContents
+            End If
+        Next r
+    End If
+    
+    ' 6) Map a CONCILIACIÓN usando última fila confiable (no K)
+    lastRowBase = LastRowReliable(wsDATA)
+    If lastRowBase >= 2 Then
+        ' Encabezados
+        wsCONC.Range("A1").Value = wsDATA.Range("I1").Value
+        wsCONC.Range("B1").Value = wsDATA.Range("G1").Value
+        wsCONC.Range("C1").Value = wsDATA.Range("K1").Value
+        wsCONC.Range("D1").Value = wsDATA.Range("J1").Value
+        wsCONC.Range("E1").Value = wsDATA.Range("N1").Value
+        wsCONC.Range("F1").Value = wsDATA.Range("M1").Value
+        wsCONC.Range("G1").Value = wsDATA.Range("E1").Value
+        wsCONC.Range("H1").Value = wsDATA.Range("O1").Value
+        
+        ' Datos
+        wsCONC.Range("A2").Resize(lastRowBase - 1).Value = wsDATA.Range("I2").Resize(lastRowBase - 1).Value
+        wsCONC.Range("B2").Resize(lastRowBase - 1).Value = wsDATA.Range("G2").Resize(lastRowBase - 1).Value
+        wsCONC.Range("C2").Resize(lastRowBase - 1).Value = wsDATA.Range("K2").Resize(lastRowBase - 1).Value
+        wsCONC.Range("D2").Resize(lastRowBase - 1).Value = wsDATA.Range("J2").Resize(lastRowBase - 1).Value
+        wsCONC.Range("E2").Resize(lastRowBase - 1).Value = wsDATA.Range("N2").Resize(lastRowBase - 1).Value
+        wsCONC.Range("F2").Resize(lastRowBase - 1).Value = wsDATA.Range("M2").Resize(lastRowBase - 1).Value
+        wsCONC.Range("G2").Resize(lastRowBase - 1).Value = wsDATA.Range("E2").Resize(lastRowBase - 1).Value
+        wsCONC.Range("H2").Resize(lastRowBase - 1).Value = wsDATA.Range("O2").Resize(lastRowBase - 1).Value
+    End If
+    
+    ' 7) D y E en absoluto (sin negativos)
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    For r = 2 To lastRowConc
+        If IsNumeric(wsCONC.Cells(r, "D").Value) Then
+            wsCONC.Cells(r, "D").Value = Abs(wsCONC.Cells(r, "D").Value)
+        End If
+        If IsNumeric(wsCONC.Cells(r, "E").Value) Then
+            wsCONC.Cells(r, "E").Value = Abs(wsCONC.Cells(r, "E").Value)
+        End If
+    Next r
+    
+    ' 8) F = Abs(E / D) SOLO si está vacío
+    If lastRowBase >= 2 Then
+        For r = 2 To lastRowBase
+            If Trim(CStr(wsCONC.Cells(r, "F").Value)) = "" Then
+                If IsNumeric(wsCONC.Cells(r, "E").Value) And IsNumeric(wsCONC.Cells(r, "D").Value) Then
+                    If wsCONC.Cells(r, "D").Value <> 0 Then
+                        wsCONC.Cells(r, "F").Value = Abs(wsCONC.Cells(r, "E").Value / wsCONC.Cells(r, "D").Value)
+                    End If
+                End If
+            End If
+        Next r
+    End If
+
+    ' 9) Mantener solo la fecha de HOY en columna G
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "G").End(xlUp).Row
+    For r = lastRowConc To 2 Step -1
+        If IsDate(wsCONC.Cells(r, "G").Value) Then
+            If DateValue(wsCONC.Cells(r, "G").Value) <> todayDate Then
+                wsCONC.Rows(r).Delete
+            End If
+        Else
+            wsCONC.Rows(r).Delete
+        End If
+    Next r
+    
+    ' 10) Guardar en INTERMEDIARIOS
+    lastRowConc = wsCONC.Cells(wsCONC.Rows.Count, "A").End(xlUp).Row
+    If lastRowConc < 2 Then
+        MsgBox "No hay operaciones con la fecha actual, el archivo no se ha guardado", vbExclamation
+        GoTo TidyExit
+    End If
+    
+    Set shellObj = CreateObject("WScript.Shell")
+    saveRoot = shellObj.SpecialFolders("MyDocuments")
+    savePath = saveRoot & "\VARIOS\INTERMEDIARIOS\"
+    
+    If Dir(savePath, vbDirectory) = "" Then
+        MsgBox "La carpeta no existe: " & vbCrLf & savePath, vbCritical
+        GoTo TidyExit
+    End If
+    
+    fileName = "DEUTSCHE BANK AG_" & Format(Date, "yyyymmdd") & ".xlsx"
+    fullSave = savePath & fileName
+    
+    wsCONC.Copy
+    Set wbNew = ActiveWorkbook
+    On Error Resume Next
+    wbNew.Sheets(1).Name = "Hoja1"
+    On Error GoTo 0
+    
+    Application.DisplayAlerts = False
+    wbNew.SaveAs fileName:=fullSave, FileFormat:=xlOpenXMLWorkbook
+    Application.DisplayAlerts = True
+    wbNew.Close SaveChanges:=False
+    
+    MsgBox "Proceso terminado. Archivo guardado en: " & vbCrLf & fullSave, vbInformation
+    
+TidyExit:
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+End Sub
+
+' === Helpers ===
+
+Private Function LastRowReliable(ws As Worksheet) As Long
+    Dim lastCell As Range
+    Set lastCell = ws.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
+                                 SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False)
+    If lastCell Is Nothing Then
+        LastRowReliable = 1
+    Else
+        LastRowReliable = lastCell.Row
+    End If
+End Function
+
+' Reemplaza NBSP y espacios delgados por espacios normales
+Private Function NormalizeSpaces(ByVal s As String) As String
+    Dim t As String
+    t = Replace$(s, Chr$(160), " ")
+    t = Replace$(t, ChrW$(&H202F), " ")
+    NormalizeSpaces = t
+End Function
